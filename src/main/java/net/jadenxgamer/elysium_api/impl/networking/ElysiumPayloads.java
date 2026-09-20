@@ -6,7 +6,7 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 public class ElysiumPayloads {
-    private static final String VERSION = "0.1.0";
+    private static final String VERSION = "0.1.1";
 
     public static void registerPayloads(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar(ElysiumAPI.MOD_ID).versioned(VERSION);
