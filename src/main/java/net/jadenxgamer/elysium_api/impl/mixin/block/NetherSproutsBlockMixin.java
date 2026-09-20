@@ -18,7 +18,7 @@ public abstract class NetherSproutsBlockMixin {
             at = @At(value = "TAIL"),
             cancellable = true
     )
-    private void elysium$changeCanPlantOnTop(BlockState state, BlockGetter level, BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
+    private void elysium_api$changeCanPlantOnTop(BlockState state, BlockGetter level, BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
         if (state.is(ElysiumTags.Blocks.NETHER_SPROUTS_PLANTABLE_ON)) {
             cir.setReturnValue(true);
         }

@@ -18,9 +18,7 @@ public abstract class RootsBlockMixin {
             at = @At(value = "TAIL"),
             cancellable = true
     )
-    private void elysium$changeCanPlantOnTop(BlockState state, BlockGetter level, BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
-        if (state.is(ElysiumTags.Blocks.ROOTS_PLANTABLE_ON)) {
-            cir.setReturnValue(true);
-        }
+    private void elysium_api$changeCanPlantOnTop(BlockState state, BlockGetter level, BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
+        if (state.is(ElysiumTags.Blocks.ROOTS_PLANTABLE_ON)) cir.setReturnValue(true);
     }
 }

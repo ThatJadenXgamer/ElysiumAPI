@@ -17,9 +17,9 @@ import net.neoforged.neoforge.registries.NeoForgeRegistries;
 public class LookupRegistryHelper {
 
     /**
-     * Lets you easily retrieve Registries with ResourceLocation
+     * Lets you retrieve entries from registries with {@link ResourceLocation}
      * @param id The namespace id of the registry you want to retrieve
-     * @return Returns the registry if it exists
+     * @return the requested registry if it exists
      */
 
     public static Block getBlock(ResourceLocation id) {

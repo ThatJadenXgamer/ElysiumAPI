@@ -16,7 +16,7 @@ public class PiglinAiMixin {
             at = @At(value = "TAIL"),
             cancellable = true
     )
-    private static void elysium$isAfraidMob(EntityType<?> entityType, CallbackInfoReturnable<Boolean> cir) {
+    private static void elysium_api$isAfraidMob(EntityType<?> entityType, CallbackInfoReturnable<Boolean> cir) {
         // for some reason mojang removed the fucking piglins_afraid_of tag
         if (entityType.is(ElysiumTags.EntityTypes.PIGLINS_AFRAID_OF)) {
             cir.setReturnValue(true);

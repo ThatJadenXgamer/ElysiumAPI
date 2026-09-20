@@ -13,5 +13,5 @@ public interface NoiseGeneratorSettingsAccessor {
     @Final
     @Mutable
     @Accessor("surfaceRule")
-    void elysium$setSurfaceRule(SurfaceRules.RuleSource rule);
+    void elysium_api$setSurfaceRule(SurfaceRules.RuleSource rule);
 }

@@ -2,95 +2,153 @@ package net.jadenxgamer.elysium_api.impl.core.worldgen.feature;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.HolderSet;
-import net.minecraft.core.RegistryCodecs;
-import net.minecraft.core.Vec3i;
+import net.jadenxgamer.elysium_api.ElysiumAPI;
+import net.jadenxgamer.elysium_api.impl.registry.ElysiumBlocks;
+import net.minecraft.core.*;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.RandomSource;
-import net.minecraft.world.level.ChunkPos;
+import net.minecraft.util.StringRepresentable;
+import net.minecraft.util.random.WeightedEntry;
+import net.minecraft.util.random.WeightedRandomList;
+import net.minecraft.util.valueproviders.ConstantInt;
+import net.minecraft.util.valueproviders.IntProvider;
+import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.levelgen.feature.Feature;
 import net.minecraft.world.level.levelgen.feature.FeaturePlaceContext;
 import net.minecraft.world.level.levelgen.feature.configurations.FeatureConfiguration;
-import net.minecraft.world.level.levelgen.structure.BoundingBox;
-import net.minecraft.world.level.levelgen.structure.templatesystem.BlockIgnoreProcessor;
-import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
-import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
+import net.minecraft.world.level.levelgen.structure.templatesystem.*;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.List;
 import java.util.Optional;
 
+public class StructureStamp extends Feature<StructureStamp.Config> {
 
-public class StructureStamp extends Feature<StructureStamp.StructureStampConfiguration> {
-    public StructureStamp(Codec<StructureStampConfiguration> pCodec) {
+    public StructureStamp(Codec<Config> pCodec) {
         super(pCodec);
     }
 
     @Override
-    public boolean place(FeaturePlaceContext<StructureStampConfiguration> context) {
+    public boolean place(FeaturePlaceContext<Config> context) {
         BlockPos origin = context.origin();
-        WorldGenLevel genLevel = context.level();
+        WorldGenLevel level = context.level();
         RandomSource random = context.random();
-        BlockPos.MutableBlockPos pos = origin.below().mutable();
+        Config config = context.config();
 
-        if (!genLevel.getBlockState(origin.below()).is(context.config().canPlaceOn())) return false;
-        StructureTemplate template = genLevel.getLevel().getServer().getStructureManager().getOrCreate(context.config().structures().get(random.nextInt(context.config().structures().size())));
-        ChunkPos chunkPos = new ChunkPos(pos);
-        BoundingBox boundingBox = new BoundingBox(
-                chunkPos.getMinBlockX() - context.config().boundingBoxScale() + template.getSize().getX(),
-                genLevel.getMinBuildHeight(),
-                chunkPos.getMinBlockZ() - context.config().boundingBoxScale() + template.getSize().getZ(),
-                chunkPos.getMaxBlockX() + context.config().boundingBoxScale() + template.getSize().getX(),
-                genLevel.getMaxBuildHeight(),
-                chunkPos.getMaxBlockZ() + context.config().boundingBoxScale() + template.getSize().getZ()
-        );
-        Rotation rotation = context.config().fixedRotation().isEmpty() ? Rotation.getRandom(random) : context.config().fixedRotation().get();
-        BlockPos placementPos = offsetChunkPos(pos, rotation, template.getSize());
-        StructurePlaceSettings placeSettings = new StructurePlaceSettings().setRotation(rotation).setBoundingBox(boundingBox).setRandom(random);
-        placeSettings.clearProcessors().addProcessor(BlockIgnoreProcessor.STRUCTURE_AND_AIR);
-        template.placeInWorld(genLevel, placementPos, placementPos, placeSettings, random, 3);
-        placeSettings.clearProcessors();
-
-        return true;
+        if (config.canPlaceOn().isPresent() && !level.getBlockState(origin.below()).is(config.canPlaceOn().get())) return false;
+        return config.templates().getRandom(random)
+                .map(selected -> placeTemplate(selected.data(), origin, level, random, config))
+                .orElseGet(() -> {
+                    ElysiumAPI.LOGGER.warn("StructureStamp failed to place at '{}' due to a lack of templates. This could happen if the templates weighted list is empty.", origin);
+                    return false;
+                });
     }
-    private static BlockPos offsetChunkPos(BlockPos.MutableBlockPos pos, Rotation rotation, Vec3i size) {
-        int halfX = size.getX() / 2;
-        int halfZ = size.getZ() / 2;
-        int offsetX = 0;
-        int offsetZ = 0;
 
-        switch (rotation) {
-            case NONE -> {
-                offsetX = -halfX;
-                offsetZ = -halfZ;
+    private boolean placeTemplate(ResourceLocation templateLocation, BlockPos origin, WorldGenLevel level, RandomSource random, Config config) {
+        StructureTemplate template = level.getLevel().getServer().getStructureManager().getOrCreate(templateLocation);
+        Rotation rotation = config.rotation().isEmpty() ? Rotation.getRandom(random) : config.rotation().get();
+
+        BlockPos pivot = BlockPos.ZERO;
+        BlockPos placementPos;
+
+        switch (config.originType()) {
+            case CENTERED -> {
+                Vec3i size = template.getSize();
+                pivot = new BlockPos(size.getX() / 2, 0, size.getZ() / 2);
+                placementPos = origin.subtract(pivot);
             }
-            case CLOCKWISE_90 -> {
-                offsetX = halfZ;
-                offsetZ = -halfX;
+            case ANCHORED -> {
+                BlockPos anchorLocal = findAnchor(template);
+                if (anchorLocal == null) {
+                    placementPos = origin;
+                    ElysiumAPI.LOGGER.warn("No Structure Stamp Anchor was found within '{}', fallback to CORNER origin_type.", templateLocation);
+                } else {
+                    pivot = anchorLocal;
+                    placementPos = origin.subtract(anchorLocal);
+                }
             }
-            case CLOCKWISE_180 -> {
-                offsetX = halfX;
-                offsetZ = halfZ;
-            }
-            case COUNTERCLOCKWISE_90 -> {
-                offsetX = -halfZ;
-                offsetZ = halfX;
-            }
+            default -> placementPos = origin; // CORNER
         }
 
-        return pos.offset(offsetX, 0, offsetZ);
+        int offset = config.originOffset().sample(random);
+        placementPos = placementPos.offset(0, offset, 0);
+
+        StructurePlaceSettings settings = new StructurePlaceSettings()
+                .setRotation(rotation)
+                .setRotationPivot(pivot)
+                .setRandom(random)
+                .setLiquidSettings(config.liquidSettings);
+
+        for (StructureProcessor processor : config.processors().value().list()) settings.addProcessor(processor);
+        if (config.originType() == OriginType.ANCHORED) settings.addProcessor(new AnchorRemovalProcessor());
+
+        template.placeInWorld(level, placementPos, placementPos, settings, random, 3);
+        return true;
     }
 
-    public record StructureStampConfiguration(List<ResourceLocation> structures, HolderSet<Block> canPlaceOn, Optional<Rotation> fixedRotation, int boundingBoxScale) implements FeatureConfiguration {
-        public static final Codec<StructureStampConfiguration> CODEC = RecordCodecBuilder.create(instance -> instance.group(
-                ResourceLocation.CODEC.listOf().fieldOf("structures").forGetter(StructureStampConfiguration::structures),
-                RegistryCodecs.homogeneousList(Registries.BLOCK).fieldOf("can_place_on").forGetter(StructureStampConfiguration::canPlaceOn),
-                Rotation.CODEC.optionalFieldOf("fixed_rotation").forGetter(StructureStampConfiguration::fixedRotation),
-                Codec.INT.fieldOf("bounding_box_scale").orElse(16).forGetter(StructureStampConfiguration::boundingBoxScale)
-        ).apply(instance, StructureStampConfiguration::new));
+    @Nullable
+    private static BlockPos findAnchor(StructureTemplate template) {
+        for (StructureTemplate.Palette palette : template.palettes) {
+            for (StructureTemplate.StructureBlockInfo info : palette.blocks()) {
+                if (info.state().is(ElysiumBlocks.STRUCTURE_STAMP_ANCHOR.get())) return info.pos();
+            }
+        }
+        return null;
+    }
+
+    public record Config(
+            WeightedRandomList<WeightedEntry.Wrapper<ResourceLocation>> templates, Optional<HolderSet<Block>> canPlaceOn, Holder<StructureProcessorList> processors,
+            Optional<Rotation> rotation, LiquidSettings liquidSettings, OriginType originType, IntProvider originOffset
+    ) implements FeatureConfiguration {
+
+        public static final Codec<Config> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+                WeightedRandomList.codec(WeightedEntry.Wrapper.codec(ResourceLocation.CODEC)).fieldOf("templates").forGetter(Config::templates),
+                RegistryCodecs.homogeneousList(Registries.BLOCK).optionalFieldOf("can_place_on").forGetter(Config::canPlaceOn),
+                StructureProcessorType.LIST_CODEC.fieldOf("processors").forGetter(Config::processors),
+                Rotation.CODEC.optionalFieldOf("rotation").forGetter(Config::rotation),
+                LiquidSettings.CODEC.fieldOf("liquid_settings").orElse(LiquidSettings.APPLY_WATERLOGGING).forGetter(Config::liquidSettings),
+                OriginType.CODEC.optionalFieldOf("origin_type", OriginType.CORNER).forGetter(Config::originType),
+                IntProvider.CODEC.optionalFieldOf("origin_offset", ConstantInt.of(0)).forGetter(Config::originOffset)
+        ).apply(instance, Config::new));
+    }
+
+    public enum OriginType implements StringRepresentable {
+        CORNER("corner"),
+        CENTERED("centered"),
+        ANCHORED("anchored");
+
+        private final String name;
+        public static final StringRepresentableCodec<OriginType> CODEC = StringRepresentable.fromEnum(OriginType::values);
+
+        OriginType(String name) {
+            this.name = name;
+        }
+
+        @Override
+        public @NotNull String getSerializedName() {
+            return name;
+        }
+
+        @Override
+        public String toString() {
+            return name;
+        }
+    }
+
+    private static class AnchorRemovalProcessor extends StructureProcessor {
+        @Override
+        public @Nullable StructureTemplate.StructureBlockInfo processBlock(LevelReader level, BlockPos offset, BlockPos pos, StructureTemplate.StructureBlockInfo blockInfo, StructureTemplate.StructureBlockInfo relativeBlockInfo, StructurePlaceSettings settings) {
+            if (relativeBlockInfo.state().is(ElysiumBlocks.STRUCTURE_STAMP_ANCHOR.get())) return null;
+            return super.processBlock(level, offset, pos, blockInfo, relativeBlockInfo, settings);
+        }
+
+        @Override
+        protected StructureProcessorType<?> getType() {
+            return StructureProcessorType.BLOCK_IGNORE;
+        }
     }
 }

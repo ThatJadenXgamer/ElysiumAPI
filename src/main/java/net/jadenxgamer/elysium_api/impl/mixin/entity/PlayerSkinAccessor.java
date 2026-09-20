@@ -14,5 +14,5 @@ public interface PlayerSkinAccessor {
     @Final
     @Mutable
     @Accessor("capeTexture")
-    void elysium$setCapeTexture(ResourceLocation texture);
+    void elysium_api$setCapeTexture(ResourceLocation texture);
 }

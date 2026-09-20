@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "color=black": {
+      "model": "elysium_api:block/solid_structure_void_black"
+    },
+    "color=white": {
+      "model": "elysium_api:block/solid_structure_void_white"
+    }
+  }
+}

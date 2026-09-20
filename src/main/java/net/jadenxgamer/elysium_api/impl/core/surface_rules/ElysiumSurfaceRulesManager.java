@@ -29,18 +29,10 @@ public class ElysiumSurfaceRulesManager {
         SurfaceRules.RuleSource newRules = null;
         SurfaceRules.RuleSource originalRules = noiseGenerator.settings.value().surfaceRule();
 
-        if (dimension.equals(LevelStem.OVERWORLD)) {
-            newRules = ElysiumSurfaceRulesManager.getForMergingRules(ElysiumSurfaceRulesManager.OVERWORLD_SURFACE_RULES, originalRules);
-        }
-        else if (dimension.equals(LevelStem.NETHER)) {
-            newRules = ElysiumSurfaceRulesManager.getForMergingRules(ElysiumSurfaceRulesManager.NETHER_SURFACE_RULES, originalRules);
-        }
-        else if (dimension.equals(LevelStem.END)) {
-            newRules = ElysiumSurfaceRulesManager.getForMergingRules(ElysiumSurfaceRulesManager.END_SURFACE_RULES, originalRules);
-        }
+        if (dimension.equals(LevelStem.OVERWORLD)) newRules = ElysiumSurfaceRulesManager.getForMergingRules(ElysiumSurfaceRulesManager.OVERWORLD_SURFACE_RULES, originalRules);
+        else if (dimension.equals(LevelStem.NETHER)) newRules = ElysiumSurfaceRulesManager.getForMergingRules(ElysiumSurfaceRulesManager.NETHER_SURFACE_RULES, originalRules);
+        else if (dimension.equals(LevelStem.END)) newRules = ElysiumSurfaceRulesManager.getForMergingRules(ElysiumSurfaceRulesManager.END_SURFACE_RULES, originalRules);
 
-        if (newRules != null) {
-            ((NoiseGeneratorSettingsAccessor) (Object) noiseGenerator.settings.value()).elysium$setSurfaceRule(newRules);
-        }
+        if (newRules != null) ((NoiseGeneratorSettingsAccessor) (Object) noiseGenerator.settings.value()).elysium_api$setSurfaceRule(newRules);
     }
 }

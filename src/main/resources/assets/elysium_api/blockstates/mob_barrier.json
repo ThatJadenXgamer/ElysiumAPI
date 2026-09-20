@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "elysium_api:block/mob_barrier"
+    }
+  }
+}

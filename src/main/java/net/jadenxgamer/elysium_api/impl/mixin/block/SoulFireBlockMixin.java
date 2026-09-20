@@ -24,7 +24,7 @@ public abstract class SoulFireBlockMixin extends BaseFireBlock {
             at = @At(value = "HEAD"),
             cancellable = true
     )
-    private void elysium$preventIllegalSoulFirePlacement(BlockState pState, LevelReader pLevel, BlockPos pPos, CallbackInfoReturnable<Boolean> cir) {
+    private void elysium_api$preventIllegalSoulFirePlacement(BlockState pState, LevelReader pLevel, BlockPos pPos, CallbackInfoReturnable<Boolean> cir) {
         BlockPos belowPos = pPos.below();
         BlockState belowState = pLevel.getBlockState(belowPos);
         if (!pState.is(ElysiumTags.Blocks.NON_SOLID_FIRE_SUPPORT) && !belowState.isFaceSturdy(pLevel, belowPos, Direction.UP)) {
