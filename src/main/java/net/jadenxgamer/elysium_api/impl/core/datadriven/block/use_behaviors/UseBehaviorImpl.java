@@ -1,5 +1,6 @@
 package net.jadenxgamer.elysium_api.impl.core.datadriven.block.use_behaviors;
 
+import net.jadenxgamer.elysium_api.api.charon.CharonContext;
 import net.jadenxgamer.elysium_api.api.util.LookupRegistryHelper;
 import net.jadenxgamer.elysium_api.api.util.RegistryAccessHelper;
 import net.jadenxgamer.elysium_api.impl.mixin.block.BlockAccessor;
@@ -13,7 +14,9 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -24,20 +27,18 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.level.levelgen.feature.ConfiguredFeature;
-import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.minecraft.world.phys.BlockHitResult;
 
 import java.util.List;
 import java.util.Optional;
 
 public class UseBehaviorImpl {
 
-    public static void init(PlayerInteractEvent.RightClickBlock event) {
+    public static void init(ServerPlayer player, Level level, ItemStack stack, InteractionHand hand, BlockHitResult hitResult, CharonContext ctx) {
         if (!RegistryAccessHelper.isRegistryAccessAvailable()) return;
 
-        Level level = event.getLevel();
-        BlockState state = level.getBlockState(event.getPos());
-        Player player = event.getEntity();
-        ItemStack stack = player.getItemInHand(event.getHand());
+        BlockPos eventPos = hitResult.getBlockPos();
+        BlockState state = level.getBlockState(eventPos);
 
         Optional<UseBehavior> useBehavior = RegistryAccessHelper.getServer()
                 .flatMap(access -> access.registryOrThrow(ElysiumRegistries.Keys.USE_BEHAVIORS).stream()
@@ -48,19 +49,18 @@ public class UseBehaviorImpl {
         if (useBehavior.isEmpty()) return;
 
         if (level.isClientSide()) {
-            event.setCancellationResult(InteractionResult.SUCCESS);
-            event.setCanceled(true);
+            ctx.setReturn(InteractionResult.SUCCESS);
             return;
         }
         UseBehavior registry = useBehavior.get();
-        BlockPos pos = getPosFromCodec(registry.behavior().pos(), registry.behavior().posOffset(), event);
+        BlockPos pos = getPosFromCodec(registry.behavior().pos(), registry.behavior().posOffset(), eventPos, level);
 
-        if (isPlaceRelated(registry) && !registry.behavior().canReplace() && !level.getBlockState(pos).canBeReplaced()) return; // Fails if the useBehavior is trying to place something is non-replaceable while the boolean to replace is false
-        if (registry.blockstateCondition().isPresent() && !registry.blockstateCondition().get().matches(state)) return; // Fails if a blockstate_condition is present and the current block does not match said state
-        if (!player.getAbilities().instabuild) handleItemAfterUse(registry.behavior().afterUseItem(), stack, event); // Handles after use behaviors of the use item, this does not fire in creative mode
+        if (isPlaceRelated(registry) && !registry.behavior().canReplace() && !level.getBlockState(pos).canBeReplaced()) return;
+        if (registry.blockstateCondition().isPresent() && !registry.blockstateCondition().get().matches(state)) return;
+        if (!player.getAbilities().instabuild) handleItemAfterUse(registry.behavior().afterUseItem(), stack, player, hand);
         if (registry.behavior().sounds().isPresent()) {
             var sounds = registry.behavior().sounds().get();
-            level.playSound(null, event.getPos(), sounds.soundEvent(), SoundSource.BLOCKS, sounds.volume(), sounds.pitch());
+            level.playSound(null, eventPos, sounds.soundEvent(), SoundSource.BLOCKS, sounds.volume(), sounds.pitch());
         }
         if (registry.behavior().particles().isPresent()) {
             var particles = registry.behavior().particles().get();
@@ -69,27 +69,25 @@ public class UseBehaviorImpl {
 
         int chanceToFail = registry.chanceToFail();
         if (chanceToFail > 0 && level.random.nextInt(chanceToFail) != 0) {
-            event.setCancellationResult(InteractionResult.SUCCESS);
-            event.setCanceled(true);
+            ctx.setReturn(InteractionResult.SUCCESS);
             return;
         }
 
         switch (registry.behavior().type()) {
-            case PLACE -> placeBlock(level, pos, state, registry.behavior().block().get(), registry.behavior(), event); // Places a Block
-            case PLACE_ITSELF -> placeBlock(level, pos, state, state, registry.behavior(), event); // Places a Block of itself
-            case DROP -> dropStack(level, pos, event.getFace(), registry.behavior().item().get(), registry.behavior().itemCount()); // Drops a Stack
-            case DROP_ITSELF -> dropStack(level, pos, event.getFace(), BuiltInRegistries.BLOCK.getKey(state.getBlock()), registry.behavior().itemCount()); // Drops a Stack of itself
-            case FEATURE -> placeFeature(level, pos, registry.behavior().feature().get()); // Places a PlacedFeature
-            case INSERT_STACK -> insertStack(player, registry.behavior().item().get(), registry.behavior().itemCount()); // Inserts a Stack within your inventory
+            case PLACE -> placeBlock(level, pos, state, registry.behavior().block().get(), registry.behavior());
+            case PLACE_ITSELF -> placeBlock(level, pos, state, state, registry.behavior());
+            case DROP -> dropStack(level, pos, hitResult.getDirection(), registry.behavior().item().get(), registry.behavior().itemCount());
+            case DROP_ITSELF -> dropStack(level, pos, hitResult.getDirection(), BuiltInRegistries.BLOCK.getKey(state.getBlock()), registry.behavior().itemCount());
+            case FEATURE -> placeFeature(level, pos, registry.behavior().feature().get());
+            case INSERT_STACK -> insertStack(player, registry.behavior().item().get(), registry.behavior().itemCount());
         }
-        if (registry.behavior().breakParticles()) level.levelEvent(2001, pos, Block.getId(state)); // Spawns break particles in the modified position
+        if (registry.behavior().breakParticles()) level.levelEvent(2001, pos, Block.getId(state));
 
-        event.setCancellationResult(InteractionResult.SUCCESS);
-        event.setCanceled(true);
+        ctx.setReturn(InteractionResult.SUCCESS);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static void placeBlock(Level level, BlockPos pos, BlockState originalState, BlockState newState, UseBehavior.Behavior behavior, PlayerInteractEvent.RightClickBlock event) {
+    private static void placeBlock(Level level, BlockPos pos, BlockState originalState, BlockState newState, UseBehavior.Behavior behavior) {
         if (newState == null) return;
         BlockState finalState = newState;
         Optional<List<String>> copyProperties = behavior.copyProperties();
@@ -125,15 +123,14 @@ public class UseBehaviorImpl {
         }
     }
 
-    private static void handleItemAfterUse(AfterUseItemEnum afterUse, ItemStack stack, PlayerInteractEvent.RightClickBlock event) {
+    private static void handleItemAfterUse(AfterUseItemEnum afterUse, ItemStack stack, Player player, InteractionHand hand) {
         switch (afterUse) {
             case CONSUME -> stack.shrink(1);
-            case DAMAGE -> stack.hurtAndBreak(1, event.getEntity(), LivingEntity.getSlotForHand(event.getHand()));
+            case DAMAGE -> stack.hurtAndBreak(1, player, LivingEntity.getSlotForHand(hand));
         }
     }
 
-    private static BlockPos getPosFromCodec(PosEnum pos, int offset, PlayerInteractEvent.RightClickBlock event) {
-        BlockPos basePos = event.getPos();
+    private static BlockPos getPosFromCodec(PosEnum pos, int offset, BlockPos basePos, Level level) {
         return switch (pos) {
             case ABOVE -> basePos.above(offset);
             case BELOW -> basePos.below(offset);
@@ -141,12 +138,12 @@ public class UseBehaviorImpl {
             case SOUTH -> basePos.south(offset);
             case EAST -> basePos.east(offset);
             case WEST -> basePos.west(offset);
-            case RANDOM_HORIZONTAL -> { // Randomly chooses between the 4 cardinal directions
-                Direction randomDir = Direction.Plane.HORIZONTAL.getRandomDirection(event.getLevel().random);
+            case RANDOM_HORIZONTAL -> {
+                Direction randomDir = Direction.Plane.HORIZONTAL.getRandomDirection(level.random);
                 yield basePos.relative(randomDir);
             }
-            case RANDOM_VERTICAL -> { // Randomly chooses between above and below
-                Direction randomDir = Direction.Plane.VERTICAL.getRandomDirection(event.getLevel().random);
+            case RANDOM_VERTICAL -> {
+                Direction randomDir = Direction.Plane.VERTICAL.getRandomDirection(level.random);
                 yield basePos.relative(randomDir);
             }
             default -> basePos;

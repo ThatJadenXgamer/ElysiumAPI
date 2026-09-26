@@ -14,7 +14,6 @@ version = project.mod_version
 
 repositories {
     mavenCentral()
-    // Add NeoForged repository.
     maven {
         name = 'NeoForged'
         url = 'https://maven.neoforged.net/releases'
@@ -27,10 +26,9 @@ repositories {
         }
     }
     maven {
-        name "KosmX's maven"
-        url 'https://maven.kosmx.dev/'
+        name = "KosmX's maven"
+        url = 'https://maven.kosmx.dev/'
     }
-
     maven {
         name = "Jared's maven"
         url = "https://maven.blamejared.com/"
@@ -43,54 +41,42 @@ repositories {
         name = "TerraformersMC"
         url = "https://maven.terraformersmc.com/"
     }
-
-    // Add repositories to retrieve artifacts from in here.
-    // You should only use this when depending on other mods because
-    // Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
-    // See https://docs.gradle.org/current/userguide/declaring_repositories.html
-    // for more information about repositories.
 }
 
 base {
     archivesName = mod_id
 }
 
-
-java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    withSourcesJar()
+}
 
 neoForge {
     enable {
         version = neoforge_version
         disableRecompilation = false
     }
-    // Validate AT files and raise errors when they have invalid targets
-    // validateAccessTransformers = true
-
     parchment {
         mappingsVersion = parchment_mappings_version
         minecraftVersion = parchment_minecraft_version
     }
-
     runs {
         client {
             client()
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
             jvmArguments = ['-Xmx2G']
         }
-
         server {
             server()
             programArgument '--nogui'
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
-
         configureEach {
             systemProperty 'forge.logging.markers', 'REGISTRIES'
-
             logLevel = org.slf4j.event.Level.DEBUG
         }
     }
-
     mods {
         "${mod_id}" {
             sourceSet(sourceSets.main)
@@ -107,9 +93,34 @@ configurations {
 dependencies {
     compileOnly "curse.maven:terrablender-940057:6054947"
     compileOnly("mezz.jei:jei-${minecraft_version}-neoforge-api:${jei_version}")
-    //runtimeOnly("mezz.jei:jei-${minecraft_version}-neoforge:${jei_version}")
     compileOnly "dev.emi:emi-neoforge:1.1.22+1.21.1:api"
     runtimeOnly "dev.emi:emi-neoforge:1.1.22+1.21.1"
+
+    compileOnly "org.spongepowered:mixin:0.8.5"
+}
+
+def charonBootstrap = tasks.register('charonBootstrap', JavaCompile) {
+    source = sourceSets.main.java
+    include 'net/jadenxgamer/elysium_api/api/charon/**'
+    include 'net/jadenxgamer/elysium_api/processor/**'
+    classpath = configurations.compileClasspath
+    destinationDirectory = layout.buildDirectory.dir('charon-bootstrap')
+    options.encoding = 'UTF-8'
+}
+
+tasks.named('compileJava', JavaCompile) {
+    dependsOn charonBootstrap
+    inputs.dir(charonBootstrap.flatMap { it.destinationDirectory })
+    options.annotationProcessorPath = files(
+            charonBootstrap.flatMap { it.destinationDirectory }
+    )
+    options.compilerArgs.addAll([
+            '-processor', 'net.jadenxgamer.elysium_api.processor.CharonProcessor'
+    ])
+}
+
+tasks.named('processResources', ProcessResources) {
+    dependsOn tasks.named('compileJava')
 }
 
 var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
@@ -136,19 +147,24 @@ sourceSets.main.resources.srcDir generateModMetadata
 neoForge.ideSyncTask generateModMetadata
 
 publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            artifactId = mod_id
+        }
+    }
+    repositories {
+        maven {
+            name = "local"
+            url = layout.buildDirectory.dir("repo")
+        }
+    }
 }
 
 tasks.withType(JavaCompile).configureEach {
-    options.encoding = 'UTF-8' // Use the UTF-8 charset for Java compilation
+    options.encoding = 'UTF-8'
 }
 
-
-
-java {
-    withSourcesJar()
-}
-
-// IDEA no longer automatically downloads sources/javadoc jars for dependencies, so we need to explicitly enable the behavior.
 idea {
     module {
         downloadSources = true
