@@ -1,0 +1,73 @@
+plugins {
+    id 'asphodel-loader'
+    id 'net.minecraftforge.gradle'
+    id 'org.spongepowered.mixin'
+}
+
+minecraft {
+    mappings channel: 'official', version: project.property('mc_1_20_1').toString()
+
+    copyIdeResources = true
+
+    runs {
+        client {
+            workingDirectory file('runs/client')
+            ideaModule "${rootProject.name}.${project.name}.main"
+            taskName 'runClient'
+            mods {
+                asphodelClientRun {
+                    source sourceSets.main
+                }
+            }
+        }
+
+        server {
+            workingDirectory file('runs/server')
+            ideaModule "${rootProject.name}.${project.name}.main"
+            taskName 'runServer'
+            mods {
+                asphodelServerRun {
+                    source sourceSets.main
+                }
+            }
+        }
+
+        data {
+            workingDirectory file('runs/data')
+            ideaModule "${rootProject.name}.${project.name}.main"
+            taskName 'runData'
+            args '--mod', project.mod_id, '--all',
+                    '--output', file('src/generated/resources/'),
+                    '--existing', file('src/main/resources/')
+            mods {
+                asphodelDataRun {
+                    source sourceSets.main
+                }
+            }
+        }
+    }
+}
+
+sourceSets.main.resources.srcDir 'src/generated/resources'
+
+mixin {
+    config("${project.mod_id}.mixins.json")
+}
+
+jar {
+    manifest {
+        attributes["MixinConfigs"] = "${project.mod_id}.mixins.json"
+    }
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${project.property('mc_1_20_1')}-${project.property('forge_1_20_1')}"
+    annotationProcessor "org.spongepowered:mixin:0.8.5-SNAPSHOT:processor"
+    implementation('net.sf.jopt-simple:jopt-simple:5.0.4') { version { strictly '5.0.4' } }
+}
+
+sourceSets.each {
+    def dir = layout.buildDirectory.dir("sourceSets/${it.name}")
+    it.output.resourcesDir = dir
+    it.java.destinationDirectory = dir
+}

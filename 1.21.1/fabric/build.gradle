@@ -1,0 +1,34 @@
+plugins {
+    id 'asphodel-loader'
+    id 'fabric-loom'
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.property('mc_1_21_1')}"
+    mappings loom.layered {
+        officialMojangMappings()
+        parchment("org.parchmentmc.data:parchment-${project.property('parchment_mc_1_21_1')}:${project.property('parchment_ver_1_21_1')}@zip")
+    }
+    modImplementation "net.fabricmc:fabric-loader:${project.property('fabric_loader_1_21_1')}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.property('fabric_1_21_1')}"
+}
+
+loom {
+    mixin {
+        defaultRefmapName.set("${project.mod_id}.refmap.json")
+    }
+    runs {
+        client {
+            client()
+            setConfigName('Fabric 1.21.1 Client')
+            ideConfigGenerated(true)
+            runDir('runs/client')
+        }
+        server {
+            server()
+            setConfigName('Fabric 1.21.1 Server')
+            ideConfigGenerated(true)
+            runDir('runs/server')
+        }
+    }
+}

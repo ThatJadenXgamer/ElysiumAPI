@@ -1,0 +1,156 @@
+plugins {
+    id 'java-library'
+    id 'idea'
+}
+
+def projectName = project.name
+def is1201 = projectName.startsWith('1_20_1')
+
+def mcVer = project.property(is1201 ? 'mc_1_20_1' : 'mc_1_21_1').toString()
+def javaVer = project.property(is1201 ? 'java_1_20_1' : 'java_1_21_1').toString()
+
+def loader
+if (projectName.endsWith('_fabric')) {
+    loader = 'fabric'
+} else if (projectName.endsWith('_forge')) {
+    loader = 'forge'
+} else if (projectName.endsWith('_neoforge')) {
+    loader = 'neoforge'
+} else {
+    throw new GradleException("Cannot determine loader from project name '${projectName}'")
+}
+
+project.ext.asphodelMcVersion = mcVer
+project.ext.asphodelJavaVersion = javaVer
+project.ext.asphodelLoader = loader
+
+base {
+    archivesName = "${project.mod_id}-${projectName}-${mcVer}"
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(javaVer)
+    withSourcesJar()
+}
+
+repositories {
+    mavenCentral()
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Sponge'
+                url = 'https://repo.spongepowered.org/repository/maven-public'
+            }
+        }
+        filter { includeGroupAndSubgroups('org.spongepowered') }
+    }
+    exclusiveContent {
+        forRepositories(
+                maven {
+                    name = 'ParchmentMC'
+                    url = 'https://maven.parchmentmc.org/'
+                },
+                maven {
+                    name = 'NeoForge'
+                    url = 'https://maven.neoforged.net/releases'
+                }
+        )
+        filter { includeGroup('org.parchmentmc.data') }
+    }
+    maven {
+        name = 'BlameJared'
+        url = 'https://maven.blamejared.com'
+    }
+}
+
+def mergeTask = tasks.register('mergeSources', asphodel.gradle.MergeSourcesTask) {
+    javaSourceDirs.from(project.file('src/main/java'))
+    javaSourceDirs.from(project.file('../common/src/main/java'))
+    javaSourceDirs.from(rootProject.file('asphodel/src/main/java'))
+
+    resourceSourceDirs.from(project.file('src/main/resources'))
+    resourceSourceDirs.from(project.file('../common/src/main/resources'))
+    resourceSourceDirs.from(rootProject.file('asphodel/src/main/resources'))
+
+    targetLoader.set(loader)
+    targetVersion.set(mcVer)
+    projectDirectory.set(project.layout.projectDirectory)
+
+    outputJavaDir.set(layout.buildDirectory.dir('generated/merged/java'))
+    outputResourceDir.set(layout.buildDirectory.dir('generated/merged/resources'))
+    stateFile.set(layout.buildDirectory.file('generated/merged/.asphodel-state'))
+}
+
+sourceSets.main.java.srcDir project.file('src/main/java')
+sourceSets.main.java.srcDir project.file('../common/src/main/java')
+sourceSets.main.java.srcDir rootProject.file('asphodel/src/main/java')
+
+sourceSets.main.resources.srcDirs = [
+        project.file('src/main/resources'),
+        project.file('../common/src/main/resources'),
+        rootProject.file('asphodel/src/main/resources')
+]
+
+tasks.named('compileJava', JavaCompile) {
+    dependsOn mergeTask
+    source = project.fileTree(mergeTask.flatMap { it.outputJavaDir }) {
+        include '**/*.java'
+    }
+}
+
+tasks.named('processResources', ProcessResources) {
+    def expandProps = [
+            'version', 'group', 'mod_id', 'mod_name', 'mod_author',
+            'license', 'credits', 'description',
+            'mc_1_20_1', 'mc_1_21_1',
+            'java_1_20_1', 'java_1_21_1',
+            'minecraft_range_1_20_1', 'minecraft_range_1_21_1',
+            'fabric_loader_1_20_1', 'fabric_loader_1_21_1',
+            'forge_1_20_1', 'forge_range_1_20_1',
+            'neoforge_1_21_1', 'neoforge_range_1_21_1'
+    ].collectEntries { name ->
+        [(name): project.property(name).toString()]
+    }
+
+    filesMatching([
+            'pack.mcmeta',
+            'fabric.mod.json',
+            'META-INF/mods.toml',
+            'META-INF/neoforge.mods.toml',
+            '*.mixins.json'
+    ]) {
+        expand expandProps
+    }
+
+    inputs.properties(expandProps)
+}
+
+tasks.named('sourcesJar', Jar) {
+    dependsOn mergeTask
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+jar {
+    from(rootProject.file('LICENSE')) {
+        rename { "${it}_${project.mod_name}" }
+    }
+    manifest {
+        attributes([
+                'Specification-Title'   : project.mod_name.toString(),
+                'Specification-Vendor'  : project.mod_author.toString(),
+                'Specification-Version' : project.version.toString(),
+                'Implementation-Title'  : projectName,
+                'Implementation-Version': project.version.toString(),
+                'Implementation-Vendor' : project.mod_author.toString(),
+                'Built-On-Minecraft'    : mcVer
+        ])
+    }
+}
+
+idea {
+    module {
+        excludeDirs += [
+                project.file('runs')
+        ]
+    }
+}
