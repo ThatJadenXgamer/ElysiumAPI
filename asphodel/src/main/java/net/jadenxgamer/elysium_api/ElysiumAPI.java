@@ -11,11 +11,17 @@ public class ElysiumAPI {
     public static final Logger LOGGER = LoggerFactory.getLogger("Elysium-API");
 
     public static void sharedSetup() {
-
+        ModBlocks.init();
     }
 
-    public static void setup20() {} // stub
-    public static void setup21() {} // stub
-    public static ResourceLocation elysiumPath(String path) { return null; } // stub
-    public static ResourceLocation idPath(String namespace, String path) { return null; } // stub
+    public static void setup20() {}
+    public static void setup21() {}
+
+    public static ResourceLocation elysiumPath(String path) {
+        return new ResourceLocation(ElysiumAPI.MOD_ID, path);
+    }
+
+    public static ResourceLocation idPath(String namespace, String path) {
+        return new ResourceLocation(namespace, path);
+    }
 }

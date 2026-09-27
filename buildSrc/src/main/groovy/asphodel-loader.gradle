@@ -63,6 +63,10 @@ repositories {
     }
 }
 
+dependencies {
+    compileOnly project(':asphodel')
+}
+
 def mergeTask = tasks.register('mergeSources', asphodel.gradle.MergeSourcesTask) {
     javaSourceDirs.from(project.file('src/main/java'))
     javaSourceDirs.from(project.file('../common/src/main/java'))
@@ -83,7 +87,6 @@ def mergeTask = tasks.register('mergeSources', asphodel.gradle.MergeSourcesTask)
 
 sourceSets.main.java.srcDir project.file('src/main/java')
 sourceSets.main.java.srcDir project.file('../common/src/main/java')
-sourceSets.main.java.srcDir rootProject.file('asphodel/src/main/java')
 
 sourceSets.main.resources.srcDirs = [
         project.file('src/main/resources'),
@@ -144,13 +147,5 @@ jar {
                 'Implementation-Vendor' : project.mod_author.toString(),
                 'Built-On-Minecraft'    : mcVer
         ])
-    }
-}
-
-idea {
-    module {
-        excludeDirs += [
-                project.file('runs')
-        ]
     }
 }

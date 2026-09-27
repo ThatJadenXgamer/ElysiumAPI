@@ -1,0 +1,39 @@
+plugins {
+    id 'java-library'
+    id 'idea'
+    id 'fabric-loom'
+}
+
+repositories {
+    mavenCentral()
+    exclusiveContent {
+        forRepositories(
+                maven {
+                    name = 'ParchmentMC'
+                    url = 'https://maven.parchmentmc.org/'
+                },
+                maven {
+                    name = 'NeoForge'
+                    url = 'https://maven.neoforged.net/releases'
+                }
+        )
+        filter { includeGroup('org.parchmentmc.data') }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.property('mc_1_20_1')}"
+    mappings loom.layered {
+        officialMojangMappings()
+        parchment("org.parchmentmc.data:parchment-${project.property('parchment_mc_1_20_1')}:${project.property('parchment_ver_1_20_1')}@zip")
+    }
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(17)
+    withSourcesJar()
+}
+
+tasks.matching { it.name.startsWith('idea') }.configureEach {
+    dependsOn tasks.named('genSources')
+}

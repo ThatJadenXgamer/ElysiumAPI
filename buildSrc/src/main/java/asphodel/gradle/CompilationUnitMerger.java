@@ -62,7 +62,13 @@ public final class CompilationUnitMerger {
             if (isExcluded(c)) continue;
             for (BodyDeclaration<?> m : c.getMembers()) {
                 if (isExcluded(m)) continue;
-                registerMember(members, signatures, m, true);
+                if (m instanceof ConstructorDeclaration cd) {
+                    ConstructorDeclaration renamed = cd.clone();
+                    renamed.setName(out.getNameAsString());
+                    registerMember(members, signatures, renamed, true);
+                } else {
+                    registerMember(members, signatures, m, true);
+                }
             }
         }
         out.setMembers(new NodeList<>(members.values()));
@@ -112,7 +118,7 @@ public final class CompilationUnitMerger {
                     m.getType().asString());
             case ConstructorDeclaration c -> new MemberKey(
                     "ctor:" + parameterSignature(c.getParameters()),
-                    c.getNameAsString());
+                    "<ctor>");
             case InitializerDeclaration i -> new MemberKey(
                     i.isStatic() ? "init:static" : "init:instance",
                     i.isStatic() ? "static" : "instance");
