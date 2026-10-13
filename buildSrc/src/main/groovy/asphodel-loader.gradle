@@ -3,35 +3,7 @@ plugins {
     id 'idea'
 }
 
-def projectName = project.name
-def is1201 = projectName.startsWith('1_20_1')
-
-def mcVer = project.property(is1201 ? 'mc_1_20_1' : 'mc_1_21_1').toString()
-def javaVer = project.property(is1201 ? 'java_1_20_1' : 'java_1_21_1').toString()
-
-def loader
-if (projectName.endsWith('_fabric')) {
-    loader = 'fabric'
-} else if (projectName.endsWith('_forge')) {
-    loader = 'forge'
-} else if (projectName.endsWith('_neoforge')) {
-    loader = 'neoforge'
-} else {
-    throw new GradleException("Cannot determine loader from project name '${projectName}'")
-}
-
-project.ext.asphodelMcVersion = mcVer
-project.ext.asphodelJavaVersion = javaVer
-project.ext.asphodelLoader = loader
-
-base {
-    archivesName = "${project.mod_id}-${projectName}-${mcVer}"
-}
-
-java {
-    toolchain.languageVersion = JavaLanguageVersion.of(javaVer)
-    withSourcesJar()
-}
+def asphodelExt = project.extensions.create('asphodel', asphodel.gradle.AsphodelExtension)
 
 repositories {
     mavenCentral()
@@ -63,89 +35,188 @@ repositories {
     }
 }
 
-dependencies {
-    compileOnly project(':asphodel')
+java {
+    toolchain.languageVersion.set(project.provider {
+        def propertyKey = asphodelExt.propertyKey
+        if (propertyKey == null) {
+            throw new GradleException("asphodel { version = '...' } must be configured in ${project.path}")
+        }
+        JavaLanguageVersion.of(project.property("java_${propertyKey}").toString())
+    } as Provider<? extends JavaLanguageVersion>)
+    withSourcesJar()
 }
 
-def mergeTask = tasks.register('mergeSources', asphodel.gradle.MergeSourcesTask) {
-    javaSourceDirs.from(project.file('src/main/java'))
-    javaSourceDirs.from(project.file('../common/src/main/java'))
-    javaSourceDirs.from(rootProject.file('asphodel/src/main/java'))
+project.afterEvaluate {
+    def projectName = project.name
+    def loader = asphodelExt.loader
+    def version = asphodelExt.version
 
-    resourceSourceDirs.from(project.file('src/main/resources'))
-    resourceSourceDirs.from(project.file('../common/src/main/resources'))
-    resourceSourceDirs.from(rootProject.file('asphodel/src/main/resources'))
-
-    targetLoader.set(loader)
-    targetVersion.set(mcVer)
-    projectDirectory.set(project.layout.projectDirectory)
-
-    outputJavaDir.set(layout.buildDirectory.dir('generated/merged/java'))
-    outputResourceDir.set(layout.buildDirectory.dir('generated/merged/resources'))
-    stateFile.set(layout.buildDirectory.file('generated/merged/.asphodel-state'))
-}
-
-sourceSets.main.java.srcDir project.file('src/main/java')
-sourceSets.main.java.srcDir project.file('../common/src/main/java')
-
-sourceSets.main.resources.srcDirs = [
-        project.file('src/main/resources'),
-        project.file('../common/src/main/resources'),
-        rootProject.file('asphodel/src/main/resources')
-]
-
-tasks.named('compileJava', JavaCompile) {
-    dependsOn mergeTask
-    source = project.fileTree(mergeTask.flatMap { it.outputJavaDir }) {
-        include '**/*.java'
+    if (loader == null || loader.isEmpty()) {
+        throw new GradleException("asphodel { loader = '...' } must be configured in ${project.path}")
     }
-}
-
-tasks.named('processResources', ProcessResources) {
-    def expandProps = [
-            'version', 'group', 'mod_id', 'mod_name', 'mod_author',
-            'license', 'credits', 'description',
-            'mc_1_20_1', 'mc_1_21_1',
-            'java_1_20_1', 'java_1_21_1',
-            'minecraft_range_1_20_1', 'minecraft_range_1_21_1',
-            'fabric_loader_1_20_1', 'fabric_loader_1_21_1',
-            'forge_1_20_1', 'forge_range_1_20_1',
-            'neoforge_1_21_1', 'neoforge_range_1_21_1'
-    ].collectEntries { name ->
-        [(name): project.property(name).toString()]
+    if (version == null || version.isEmpty()) {
+        throw new GradleException("asphodel { version = '...' } must be configured in ${project.path}")
     }
 
-    filesMatching([
-            'pack.mcmeta',
-            'fabric.mod.json',
-            'META-INF/mods.toml',
-            'META-INF/neoforge.mods.toml',
-            '*.mixins.json'
-    ]) {
-        expand expandProps
+    def propertyKey = asphodelExt.propertyKey
+
+    if (!project.hasProperty("mc_${propertyKey}")) {
+        throw new GradleException("Missing property 'mc_${propertyKey}' required by ${project.path}")
+    }
+    if (!project.hasProperty("java_${propertyKey}")) {
+        throw new GradleException("Missing property 'java_${propertyKey}' required by ${project.path}")
     }
 
-    inputs.properties(expandProps)
-}
+    def sharedRootName = (rootProject.findProperty('asphodel_shared_root') ?: '1_20_1_vanilla').toString()
+    def isSharedRoot = projectName == sharedRootName
 
-tasks.named('sourcesJar', Jar) {
-    dependsOn mergeTask
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-}
+    def mcVer = version
+    def javaVer = project.property("java_${propertyKey}").toString()
 
-jar {
-    from(rootProject.file('LICENSE')) {
-        rename { "${it}_${project.mod_name}" }
+    project.ext.asphodelMcVersion = mcVer
+    project.ext.asphodelJavaVersion = javaVer
+    project.ext.asphodelLoader = loader
+
+    project.ext.mc = mcVer
+    project.ext.java = javaVer
+    project.ext.minecraft_range = project.hasProperty("minecraft_range_${propertyKey}")
+            ? project.property("minecraft_range_${propertyKey}").toString()
+            : "[${mcVer},)"
+
+    ['fabric_loader', 'forge', 'forge_range', 'neoforge', 'neoforge_range'].each { baseName ->
+        def k = "${baseName}_${propertyKey}"
+        if (project.hasProperty(k)) {
+            project.ext.set(baseName, project.property(k).toString())
+        }
     }
-    manifest {
-        attributes([
-                'Specification-Title'   : project.mod_name.toString(),
-                'Specification-Vendor'  : project.mod_author.toString(),
-                'Specification-Version' : project.version.toString(),
-                'Implementation-Title'  : projectName,
-                'Implementation-Version': project.version.toString(),
-                'Implementation-Vendor' : project.mod_author.toString(),
-                'Built-On-Minecraft'    : mcVer
-        ])
+
+    base {
+        archivesName = "${project.mod_id}-${projectName}-${mcVer}"
+    }
+
+    def javaSourceDirFile = rootProject.file('src/main/java')
+    def mainResourceDirFile = rootProject.file('src/main/resources')
+    def versionJavaDirFile = rootProject.file("src/overlays/${version}/java")
+    def versionResourceDirFile = rootProject.file("src/overlays/${version}/resources")
+    def loaderJavaDirFile = rootProject.file("src/overlays/${version}-${loader}/java")
+    def loaderResourceDirFile = rootProject.file("src/overlays/${version}-${loader}/resources")
+
+    def assembleTask = tasks.register('assembleSources', asphodel.gradle.AssembleSourcesTask) {
+        javaSourceDirs.from(javaSourceDirFile, versionJavaDirFile, loaderJavaDirFile)
+        mainResourcesDir.from(mainResourceDirFile)
+        versionResourcesDir.from(versionResourceDirFile)
+        loaderResourcesDir.from(loaderResourceDirFile)
+        targetLoader.set(loader)
+        targetVersion.set(mcVer)
+        projectDirectory.set(project.layout.projectDirectory)
+        outputJavaDir.set(layout.buildDirectory.dir('generated/assembled/java'))
+        outputResourcesDir.set(layout.buildDirectory.dir('generated/assembled/resources'))
+        stateFile.set(layout.buildDirectory.file('asphodel/assemble-state.tsv'))
+    }
+
+    sourceSets.main.java.setSrcDirs([])
+    if (isSharedRoot) {
+        sourceSets.main.java.srcDir(javaSourceDirFile)
+        sourceSets.main.java.srcDir(versionJavaDirFile)
+    } else if (loader == 'vanilla') {
+        sourceSets.main.java.srcDir(versionJavaDirFile)
+    } else {
+        sourceSets.main.java.srcDir(loaderJavaDirFile)
+    }
+
+    sourceSets.main.resources.setSrcDirs([])
+    if (isSharedRoot) {
+        sourceSets.main.resources.srcDir(mainResourceDirFile)
+        sourceSets.main.resources.srcDir(versionResourceDirFile)
+    } else if (loader == 'vanilla') {
+        sourceSets.main.resources.srcDir(versionResourceDirFile)
+    } else {
+        sourceSets.main.resources.srcDir(mainResourceDirFile)
+        sourceSets.main.resources.srcDir(versionResourceDirFile)
+        sourceSets.main.resources.srcDir(loaderResourceDirFile)
+    }
+
+    def mergedOutputDir = layout.buildDirectory.dir("classes")
+    sourceSets.main.output.resourcesDir = mergedOutputDir.get().asFile
+    sourceSets.main.java.destinationDirectory = mergedOutputDir
+
+    tasks.named('compileJava', JavaCompile) {
+        dependsOn assembleTask
+        source = fileTree(assembleTask.flatMap { it.outputJavaDir })
+    }
+
+    if (!isSharedRoot) {
+        def sharedRootProject = rootProject.findProject(":${sharedRootName}")
+        if (sharedRootProject != null && sharedRootProject != project) {
+            dependencies {
+                compileOnly sharedRootProject
+            }
+        }
+
+        if (loader != 'vanilla') {
+            def versionVanillaName = "${propertyKey}_vanilla"
+            def versionVanillaProject = rootProject.findProject(":${versionVanillaName}")
+            if (versionVanillaProject != null && versionVanillaProject != project) {
+                dependencies {
+                    compileOnly versionVanillaProject
+                }
+            }
+        }
+    }
+
+    tasks.named('processResources', ProcessResources) {
+        dependsOn assembleTask
+
+        def assembledResources = assembleTask.flatMap { it.outputResourcesDir }
+        from(assembledResources)
+        exclude { element ->
+            def assembledRoot = assembledResources.get().asFile.toPath().toAbsolutePath()
+            !element.file.toPath().toAbsolutePath().startsWith(assembledRoot)
+        }
+
+        def expandProps = [
+                'version', 'group', 'mod_id', 'mod_name', 'mod_author',
+                'license', 'credits', 'description',
+                'mc', 'java', 'minecraft_range',
+                'fabric_loader',
+                'forge', 'forge_range',
+                'neoforge', 'neoforge_range'
+        ].collectEntries { name ->
+            [(name): project.hasProperty(name) ? project.property(name).toString() : '']
+        }
+
+        filesMatching([
+                'pack.mcmeta',
+                'fabric.mod.json',
+                'META-INF/mods.toml',
+                'META-INF/neoforge.mods.toml',
+                '*.mixins.json'
+        ]) {
+            expand expandProps
+        }
+
+        inputs.properties(expandProps)
+    }
+
+    tasks.named('sourcesJar', Jar) {
+        dependsOn assembleTask
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
+
+    jar {
+        from(rootProject.file('LICENSE')) {
+            rename { "${it}_${project.mod_name}" }
+        }
+        manifest {
+            attributes([
+                    'Specification-Title'   : project.mod_name.toString(),
+                    'Specification-Vendor'  : project.mod_author.toString(),
+                    'Specification-Version' : project.version.toString(),
+                    'Implementation-Title'  : projectName,
+                    'Implementation-Version': project.version.toString(),
+                    'Implementation-Vendor' : project.mod_author.toString(),
+                    'Built-On-Minecraft'    : mcVer
+            ])
+        }
     }
 }

@@ -1,0 +1,44 @@
+plugins {
+    id 'asphodel-loader'
+    id 'net.neoforged.moddev'
+}
+
+asphodel {
+    loader = 'neoforge'
+    version = '1.21.1'
+}
+
+neoForge {
+    version = project.property('neoforge_1_21_1').toString()
+
+    parchment {
+        minecraftVersion = project.property('parchment_mc_1_21_1').toString()
+        mappingsVersion = project.property('parchment_ver_1_21_1').toString()
+    }
+
+    runs {
+        configureEach {
+            systemProperty('neoforge.enabledGameTestNamespaces', project.mod_id.toString())
+            ideName = "NeoForge ${it.name.capitalize()} (${project.path})"
+        }
+        client {
+            client()
+        }
+        server {
+            server()
+        }
+        data {
+            data()
+            programArguments.addAll '--mod', project.mod_id,
+                    '--all',
+                    '--output', file('src/generated/resources/').getAbsolutePath(),
+                    '--existing', layout.buildDirectory.dir('generated/assembled/resources').get().asFile.absolutePath
+        }
+    }
+
+    mods {
+        "${project.mod_id}" {
+            sourceSet sourceSets.main
+        }
+    }
+}

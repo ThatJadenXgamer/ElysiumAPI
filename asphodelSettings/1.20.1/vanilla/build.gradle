@@ -1,0 +1,26 @@
+plugins {
+    id 'asphodel-loader'
+    id 'fabric-loom'
+}
+
+asphodel {
+    loader = 'vanilla'
+    version = '1.20.1'
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.property('mc_1_20_1')}"
+    mappings loom.layered {
+        officialMojangMappings()
+        parchment("org.parchmentmc.data:parchment-${project.property('parchment_mc_1_20_1')}:${project.property('parchment_ver_1_20_1')}@zip")
+    }
+    compileOnly "net.fabricmc:sponge-mixin:0.12.5+mixin.0.8.5"
+    annotationProcessor "net.fabricmc:sponge-mixin:0.12.5+mixin.0.8.5"
+    compileOnly "io.github.llamalad7:mixinextras-fabric:0.3.5"
+}
+
+loom {
+    mixin {
+        defaultRefmapName.set("${project.mod_id}.refmap.json")
+    }
+}

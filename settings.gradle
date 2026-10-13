@@ -54,18 +54,22 @@ plugins {
     id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
 }
 
-rootProject.name = 'Elysium-API'
+rootProject.name = 'Asphodel-Gradle'
 
-include('asphodel')
+include('1_20_1_vanilla')
+project(':1_20_1_vanilla').projectDir = file('asphodelSettings/1.20.1/vanilla')
 
 include('1_20_1_fabric')
-project(':1_20_1_fabric').projectDir = file('1.20.1/fabric')
+project(':1_20_1_fabric').projectDir = file('asphodelSettings/1.20.1/fabric')
 
 include('1_20_1_forge')
-project(':1_20_1_forge').projectDir = file('1.20.1/forge')
+project(':1_20_1_forge').projectDir = file('asphodelSettings/1.20.1/forge')
+
+include('1_21_1_vanilla')
+project(':1_21_1_vanilla').projectDir = file('asphodelSettings/1.21.1/vanilla')
 
 include('1_21_1_fabric')
-project(':1_21_1_fabric').projectDir = file('1.21.1/fabric')
+project(':1_21_1_fabric').projectDir = file('asphodelSettings/1.21.1/fabric')
 
 include('1_21_1_neoforge')
-project(':1_21_1_neoforge').projectDir = file('1.21.1/neoforge')
+project(':1_21_1_neoforge').projectDir = file('asphodelSettings/1.21.1/neoforge')

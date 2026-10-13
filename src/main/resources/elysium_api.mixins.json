@@ -1,0 +1,18 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.jadenxgamer.elysium_api.impl.mixin",
+  "refmap": "${mod_id}.refmap.json",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "block.BlockBehaviourMixin",
+    "block.BlockMixin",
+    "mechanics.PistonStructureResolverMixin",
+    "misc.TagLoaderMixin"
+  ],
+  "client": [],
+  "server": [],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

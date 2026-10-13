@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/cube_all",
+  "textures": {
+    "all": "elysium_api:block/structure_stamp_anchor"
+  }
+}

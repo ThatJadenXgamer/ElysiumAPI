@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "${mod_id}",
+  "version": "${version}",
+  "name": "${mod_name}",
+  "description": "${description}",
+  "authors": [
+    "${mod_author}"
+  ],
+  "license": "${license}",
+  "mixins": [
+    "elysium_api.mixins.json",
+    "elysium_api.20.mixins.json",
+    "elysium_api.fabric.mixins.json"
+  ],
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "net.jadenxgamer.elysium_api.fabric.ElysiumAPIFabric"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=${fabric_loader}",
+    "fabric-api": "*",
+    "minecraft": "${mc}",
+    "java": ">=${java}"
+  }
+}
