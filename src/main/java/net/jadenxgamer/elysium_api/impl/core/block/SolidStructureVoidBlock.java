@@ -3,15 +3,20 @@ package net.jadenxgamer.elysium_api.impl.core.block;
 import net.jadenxgamer.elysium_api.api.interfaces.IElysiumBlock;
 import net.jadenxgamer.elysium_api.api.interfaces.enums.ElysiumBubbleColumnDirection;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.util.StringRepresentable;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public class SolidStructureVoidBlock extends Block implements IElysiumBlock {
 
@@ -53,11 +58,6 @@ public class SolidStructureVoidBlock extends Block implements IElysiumBlock {
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
         builder.add(COLOR);
-    }
-
-    @Override
-    public ElysiumBubbleColumnDirection elysiumGetBubbleColumnDirection(BlockState state) {
-        return state.getValue(COLOR) == Color.WHITE ?  ElysiumBubbleColumnDirection.UPWARD :  ElysiumBubbleColumnDirection.DOWNWARD;
     }
 
     public enum Color implements StringRepresentable {

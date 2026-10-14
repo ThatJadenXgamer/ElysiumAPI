@@ -5,7 +5,14 @@
   "refmap": "${mod_id}.fabric.refmap.json",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
-    "mechanics.BubbleColumnBlockMixin"
+    "mechanics.BubbleColumnBlockMixin",
+    "mechanics.ExplosionDamageCalculatorMixin",
+    "mechanics.WalkNodeEvaluatorMixin",
+    "block.FireBlockMixin",
+    "block.RedStoneWireBlockMixin",
+    "block.BlockStateBaseMixin",
+    "entity.LivingEntityMixin",
+    "entity.ItemEntityMixin"
   ],
   "client": [],
   "server": [],

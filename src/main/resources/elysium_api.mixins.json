@@ -8,7 +8,9 @@
     "block.BlockBehaviourMixin",
     "block.BlockMixin",
     "mechanics.PistonStructureResolverMixin",
-    "misc.TagLoaderMixin"
+    "misc.TagLoaderMixin",
+    "block.FireBlockAccessor",
+    "block.BlockInvoker"
   ],
   "client": [],
   "server": [],
