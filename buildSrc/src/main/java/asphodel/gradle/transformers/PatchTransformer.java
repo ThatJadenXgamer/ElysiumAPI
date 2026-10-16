@@ -53,7 +53,7 @@ public final class PatchTransformer {
         String normalized = rawSource.replace("\r\n", "\n").replace('\r', '\n');
         String[] lines = normalized.split("\n", -1);
         StringBuilder output = new StringBuilder(normalized.length());
-        String massId = null;
+        List<String> massIds = null;
         int massStartLine = -1;
         boolean inBlockComment = false;
 
@@ -63,39 +63,39 @@ public final class PatchTransformer {
 
             if (asphodelDirective(line) != null) continue;
 
-            String[] mass = massAction(line);
+            MassAction mass = massAction(line);
             if (mass != null) {
-                String actionId = mass[0];
-                boolean play = mass[1].equals("play");
-                if (play) {
-                    if (massId != null) throw new GradleException("Nested mass play directive for id '" + actionId
+                if (mass.play()) {
+                    if (massIds != null) throw new GradleException("Nested mass play directive for id(s) '" + joinIds(mass.ids())
                             + "' at line " + (lineIndex + 1)
-                            + " while mass id '" + massId
+                            + " while mass id(s) '" + joinIds(massIds)
                             + "' (opened at line " + massStartLine + ") was still active");
-                    if (!knownIds.contains(actionId)) warnings.add("Unknown patch id '" + actionId
-                            + "' referenced in mass play marker at line " + (lineIndex + 1)
-                            + "; content will be dropped on all configurations.");
-                    massId = actionId;
+                    for (String id : mass.ids()) {
+                        if (!knownIds.contains(id)) warnings.add("Unknown patch id '" + id
+                                + "' referenced in mass play marker at line " + (lineIndex + 1)
+                                + "; content will be dropped on all configurations.");
+                    }
+                    massIds = mass.ids();
                     massStartLine = lineIndex + 1;
                 } else {
-                    if (massId == null) throw new GradleException("Mass pause directive for id '" + actionId
+                    if (massIds == null) throw new GradleException("Mass pause directive for id(s) '" + joinIds(mass.ids())
                             + "' at line " + (lineIndex + 1)
                             + " without a matching mass play directive");
-                    if (!massId.equals(actionId)) throw new GradleException("Mass pause directive for id '" + actionId
+                    if (!new HashSet<>(massIds).equals(new HashSet<>(mass.ids()))) throw new GradleException("Mass pause directive for id(s) '" + joinIds(mass.ids())
                             + "' at line " + (lineIndex + 1)
-                            + " while mass id '" + massId
+                            + " while mass id(s) '" + joinIds(massIds)
                             + "' (opened at line " + massStartLine + ") was active");
-                    if (inBlockComment) throw new GradleException("Mass pause directive for id '" + actionId
+                    if (inBlockComment) throw new GradleException("Mass pause directive for id(s) '" + joinIds(mass.ids())
                             + "' at line " + (lineIndex + 1)
                             + " while a block comment was still open");
-                    massId = null;
+                    massIds = null;
                     massStartLine = -1;
                 }
                 continue;
             }
 
-            if (massId != null) {
-                boolean active = activeIds.contains(massId);
+            if (massIds != null) {
+                boolean active = anyActive(massIds, activeIds);
 
                 if (inBlockComment) {
                     String trimmedLine = line.stripTrailing();
@@ -160,30 +160,40 @@ public final class PatchTransformer {
                     output.append(line);
                     continue;
                 }
-                String[] include = parseIncludeMarker(line);
+                IncludeMarker include = parseIncludeMarker(line);
                 if (include != null) {
-                    String referencedId = include[1];
-                    if (!knownIds.contains(referencedId)) {
-                        warnings.add("Unknown patch id '" + referencedId + "' referenced in include marker; dropping line.");
-                        continue;
+                    List<String> ids = include.ids();
+                    boolean anyUnknown = false;
+                    for (String id : ids) {
+                        if (!knownIds.contains(id)) {
+                            warnings.add("Unknown patch id '" + id + "' referenced in include marker; dropping line.");
+                            anyUnknown = true;
+                        }
                     }
-                    if (activeIds.contains(referencedId)) output.append(include[0]);
+                    if (anyUnknown) continue;
+                    if (anyActive(ids, activeIds)) output.append(include.code());
                     continue;
                 }
                 output.append(line);
                 continue;
             }
 
-            String[] remove = parseRemoveMarker(line);
+            RemoveMarker remove = parseRemoveMarker(line);
             if (remove != null) {
-                String referencedId = remove[1];
-                if (!knownIds.contains(referencedId)) {
-                    warnings.add("Unknown patch id '" + referencedId + "' referenced in remove marker; leaving line unchanged.");
+                List<String> ids = remove.ids();
+                boolean anyUnknown = false;
+                for (String id : ids) {
+                    if (!knownIds.contains(id)) {
+                        warnings.add("Unknown patch id '" + id + "' referenced in remove marker; leaving line unchanged.");
+                        anyUnknown = true;
+                    }
+                }
+                if (anyUnknown) {
                     output.append(line);
                     continue;
                 }
-                if (activeIds.contains(referencedId)) continue;
-                output.append(remove[0]);
+                if (anyActive(ids, activeIds)) continue;
+                output.append(remove.code());
                 continue;
             }
 
@@ -191,10 +201,19 @@ public final class PatchTransformer {
         }
 
         if (inBlockComment) throw new GradleException("Block comment was never closed inside the last mass block");
-        if (massId != null) throw new GradleException("Mass play directive for id '" + massId
+        if (massIds != null) throw new GradleException("Mass play directive for id(s) '" + joinIds(massIds)
                 + "' (opened at line " + massStartLine + ") was never paused");
 
         return new Result(output.toString(), warnings);
+    }
+
+    private static String joinIds(List<String> ids) {
+        return String.join(" && ", ids);
+    }
+
+    private static boolean anyActive(List<String> ids, Set<String> activeIds) {
+        for (String id : ids) if (activeIds.contains(id)) return true;
+        return false;
     }
 
     private static String[] asphodelDirective(String line) {
@@ -213,39 +232,44 @@ public final class PatchTransformer {
         return null;
     }
 
-    private static String[] massAction(String line) {
+    private static MassAction massAction(String line) {
         String trimmed = line.stripLeading();
         if (!trimmed.startsWith("//")) return null;
         String body = trimmed.substring(2).stripLeading();
         if (!body.startsWith("mass*")) return null;
-        body = body.substring("mass*".length());
+        body = body.substring("mass*".length()).strip();
 
-        int idEnd = 0;
-        while (idEnd < body.length() && (Character.isLetterOrDigit(body.charAt(idEnd)) || body.charAt(idEnd) == '_')) idEnd++;
-        if (idEnd == 0) return null;
-        String id = body.substring(0, idEnd);
-        if (!id.matches(ID)) return null;
+        int lastSpace = body.lastIndexOf(' ');
+        if (lastSpace < 0) return null;
+        String action = body.substring(lastSpace + 1);
+        boolean play;
+        if (action.equals("play")) play = true;
+        else if (action.equals("pause")) play = false;
+        else return null;
 
-        String rest = body.substring(idEnd).stripLeading();
-        if (rest.equals("play") || rest.equals("pause")) return new String[]{id, rest};
-        return null;
+        String idPart = body.substring(0, lastSpace);
+        List<String> ids = parseIdList(idPart);
+        if (ids == null) return null;
+        return new MassAction(ids, play);
     }
 
     private static boolean endsWithRemoveMarker(String line) {
         String trimmed = line.stripTrailing();
         int removeIndex = trimmed.lastIndexOf("remove*");
         if (removeIndex < 0) return false;
-        return trimmed.substring(removeIndex + "remove*".length()).matches(ID);
+        String idList = trimmed.substring(removeIndex + "remove*".length());
+        return parseIdList(idList) != null;
     }
 
-    private static String[] parseIncludeMarker(String line) {
+    private static IncludeMarker parseIncludeMarker(String line) {
         String trimmed = line.stripTrailing();
         if (trimmed.endsWith("*/")) trimmed = trimmed.substring(0, trimmed.length() - 2).stripTrailing();
 
         int starIndex = trimmed.lastIndexOf('*');
         if (starIndex < 0) return null;
-        String id = trimmed.substring(starIndex + 1);
-        if (!id.matches(ID)) return null;
+        String idList = trimmed.substring(starIndex + 1);
+        List<String> ids = parseIdList(idList);
+        if (ids == null) return null;
 
         String prefix = trimmed.substring(0, starIndex).stripTrailing();
         String prefixLeading = prefix.stripLeading();
@@ -255,22 +279,36 @@ public final class PatchTransformer {
         if (!prefixLeading.startsWith("//") && !prefixLeading.startsWith("/*")) return null;
         String content = stripOneLeadingSpace(prefixLeading.substring(2));
 
-        return new String[]{indent + content, id};
+        return new IncludeMarker(indent + content, ids);
     }
 
-    private static String[] parseRemoveMarker(String line) {
+    private static RemoveMarker parseRemoveMarker(String line) {
         String trimmed = line.stripTrailing();
         int removeIndex = trimmed.lastIndexOf("remove*");
         if (removeIndex < 0) return null;
-        String id = trimmed.substring(removeIndex + "remove*".length());
-        if (!id.matches(ID)) return null;
+        String idList = trimmed.substring(removeIndex + "remove*".length());
+        List<String> ids = parseIdList(idList);
+        if (ids == null) return null;
 
         String prefix = trimmed.substring(0, removeIndex);
         String prefixTrimmed = prefix.stripTrailing();
 
         if (!prefixTrimmed.endsWith("//")) return null;
         String code = prefixTrimmed.substring(0, prefixTrimmed.length() - 2).stripTrailing();
-        return new String[]{code, id};
+        return new RemoveMarker(code, ids);
+    }
+
+    private static List<String> parseIdList(String value) {
+        if (value == null || value.isEmpty()) return null;
+        String[] parts = value.split("&&");
+        if (parts.length == 0) return null;
+        List<String> ids = new ArrayList<>(parts.length);
+        for (String part : parts) {
+            String trimmed = part.strip();
+            if (!trimmed.matches(ID)) return null;
+            ids.add(trimmed);
+        }
+        return ids;
     }
 
     private static String stripOneLeadingSpace(String value) {
@@ -282,4 +320,8 @@ public final class PatchTransformer {
     }
 
     public record Result(String source, List<String> warnings) {}
+
+    private record RemoveMarker(String code, List<String> ids) {}
+    private record IncludeMarker(String code, List<String> ids) {}
+    private record MassAction(List<String> ids, boolean play) {}
 }

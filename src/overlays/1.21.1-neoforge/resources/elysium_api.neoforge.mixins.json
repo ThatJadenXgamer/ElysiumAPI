@@ -7,7 +7,9 @@
   "mixins": [
     "block.BlockMixinN21"
   ],
-  "client": [],
+  "client": [
+    "client.NeoForgeLoadingOverlayMixin"
+  ],
   "server": [],
   "injectors": {
     "defaultRequire": 1

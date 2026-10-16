@@ -29,8 +29,7 @@ public abstract class PistonStructureResolverMixin {
     )
     private static void elysium$canStickToEachOther(BlockState state1, BlockState state2, CallbackInfoReturnable<Boolean> cir) {
         cir.setReturnValue(
-            ((IElysiumBlock) state1.getBlock()).elysiumCanStickTo(state1, state2)
-                && ((IElysiumBlock) state2.getBlock()).elysiumCanStickTo(state2, state1)
+            ((IElysiumBlock) state1.getBlock()).elysiumCanStickTo(state1, state2) && ((IElysiumBlock) state2.getBlock()).elysiumCanStickTo(state2, state1)
         );
     }
 }

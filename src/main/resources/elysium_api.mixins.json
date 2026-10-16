@@ -12,7 +12,9 @@
     "block.FireBlockAccessor",
     "block.BlockInvoker"
   ],
-  "client": [],
+  "client": [
+    "client.LoadingOverlayMixin"
+  ],
   "server": [],
   "injectors": {
     "defaultRequire": 1

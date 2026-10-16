@@ -8,7 +8,9 @@
     "mechanics.BubbleColumnBlockMixin",
     "block.BlockMixinL20"
   ],
-  "client": [],
+  "client": [
+    "client.ForgeLoadingOverlayMixin"
+  ],
   "server": [],
   "injectors": {
     "defaultRequire": 1

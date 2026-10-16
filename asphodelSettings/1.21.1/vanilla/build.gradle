@@ -14,6 +14,7 @@ dependencies {
         officialMojangMappings()
         parchment("org.parchmentmc.data:parchment-${project.property('parchment_mc_1_21_1')}:${project.property('parchment_ver_1_21_1')}@zip")
     }
+    compileOnly "net.fabricmc:fabric-loader:${project.property('fabric_loader_1_21_1')}"
     compileOnly "net.fabricmc:sponge-mixin:0.15.4+mixin.0.8.7"
     annotationProcessor "net.fabricmc:sponge-mixin:0.15.4+mixin.0.8.7"
     compileOnly "io.github.llamalad7:mixinextras-fabric:0.4.1"
