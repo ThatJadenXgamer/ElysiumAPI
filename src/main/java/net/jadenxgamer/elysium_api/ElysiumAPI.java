@@ -2,6 +2,7 @@
 // asphodel::merge -> loader=*, version=1.21.1 -> net.jadenxgamer.elysium_api.ElysiumAPI21
 package net.jadenxgamer.elysium_api;
 
+import net.jadenxgamer.elysium_api.impl.network.ElysiumNetworking;
 import net.jadenxgamer.elysium_api.impl.registry.ElysiumBlocks;
 import net.jadenxgamer.elysium_api.impl.registry.ElysiumItems;
 import net.minecraft.resources.ResourceLocation;
@@ -18,6 +19,7 @@ public class ElysiumAPI {
     public static void sharedSetup() {
         ElysiumBlocks.init();
         ElysiumItems.init();
+        ElysiumNetworking.init();
     }
 
     public static void setup20() {}

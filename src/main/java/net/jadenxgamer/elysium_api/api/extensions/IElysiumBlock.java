@@ -331,7 +331,7 @@ public interface IElysiumBlock {
      * when no per-face override is present, so third-party mods that override this method continue to have
      * their implementation honored across all three loaders.
      * <br>
-     * <li>Original Analog: {@code BlockState.canStickTo} (Forge and NeoForge)
+     * <li>Original Analog: {@code BlockState.canStickTo} 
      * <li>Purpose: Forge and NeoForge extension parity.
      *
      * @param state the current state
@@ -358,7 +358,7 @@ public interface IElysiumBlock {
      * piston resolution without modification. Mods that require face-sensitive
      * stickiness can override this method directly and skip the fallback.
      * <br>
-     * <li>Original Analog: {@code BlockState.canStickTo} (Forge and NeoForge)
+     * <li>Original Analog: {@code BlockState.canStickTo} 
      * <li>Purpose: Elysium provided extension.
      *
      * @param selfState the state of the block being queried
