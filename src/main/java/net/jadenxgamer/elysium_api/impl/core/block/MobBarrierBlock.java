@@ -1,7 +1,7 @@
 package net.jadenxgamer.elysium_api.impl.core.block;
 
-import net.jadenxgamer.elysium_api.api.interfaces.IElysiumBlock;
-import net.jadenxgamer.elysium_api.api.interfaces.IElysiumSimpleWaterloggedBlock;
+import net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock;
+import net.jadenxgamer.elysium_api.api.extensions.IElysiumSimpleWaterloggedBlock;
 import net.jadenxgamer.elysium_api.impl.registry.ElysiumBlocks;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;

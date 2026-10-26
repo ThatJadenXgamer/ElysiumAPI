@@ -18,12 +18,13 @@ import java.util.List;
 public final class KhaosLoadingGradient {
 
     private static final float GRADIENT_FADE_IN_MILLIS = 1250.0F;
-    private static final int GRADIENT_COLOR = 0x440641;
+    private static final int GRADIENT_COLOR = 0x9100BA;
     private static final int GRADIENT_HEIGHT_NUMERATOR = 2;
     private static final int GRADIENT_HEIGHT_DENOMINATOR = 5;
 
     private static final int ICON_SIZE = 16;
     private static final int ICON_SPACING = 3;
+    private static final float ICON_PULSE_PERIOD_MILLIS = 1000.0F;
 
     private static final float GRADIENT_COLOR_R = ((GRADIENT_COLOR >> 16) & 0xFF) / 255.0F;
     private static final float GRADIENT_COLOR_G = ((GRADIENT_COLOR >> 8) & 0xFF) / 255.0F;
@@ -133,6 +134,7 @@ public final class KhaosLoadingGradient {
     private KhaosLoadingGradient() {}
 
     public static float computeGradientAlpha(long elapsedMillis, long fadeOutStartMillis, long fadeInStartMillis, boolean fadeInActive) {
+        if (UniversalModLoaderHelper.isProductionEnvironment()) return 0.0F;
         float fadeInAlpha = Mth.clamp((float) elapsedMillis / GRADIENT_FADE_IN_MILLIS, 0.0F, 1.0F);
         return Math.min(fadeInAlpha, computeFadeAlpha(fadeOutStartMillis, fadeInStartMillis, fadeInActive));
     }
@@ -148,7 +150,39 @@ public final class KhaosLoadingGradient {
         return 1.0F;
     }
 
+    private static float computeIconPulseAlpha(int index, int count, float fadeAlpha) {
+        double fullCycle = ICON_PULSE_PERIOD_MILLIS;
+
+        if (count <= 1) {
+            double phase = ((double) Util.getMillis() / fullCycle) * Math.PI * 2.0;
+            double pulse = 0.75 + 0.25 * Math.sin(phase);
+            return fadeAlpha * (float) pulse;
+        }
+
+        double halfCycle = fullCycle / 2.0;
+        double staggerMillis = halfCycle / count;
+        double timeInCycle = Util.getMillis() % fullCycle;
+        double iconStart = index * staggerMillis;
+        double iconEnd = iconStart + staggerMillis;
+
+        float progress;
+        if (timeInCycle < halfCycle) {
+            if (timeInCycle < iconStart) progress = 1.0f;
+            else if (timeInCycle >= iconEnd) progress = 0.0f;
+            else progress = 1.0f - (float) ((timeInCycle - iconStart) / staggerMillis);
+        } else {
+            double timeInPhase = timeInCycle - halfCycle;
+            if (timeInPhase < iconStart) progress = 0.0f;
+            else if (timeInPhase >= iconEnd) progress = 1.0f;
+            else progress = (float) ((timeInPhase - iconStart) / staggerMillis);
+        }
+
+        float pulse = 0.5f + 0.5f * progress;
+        return fadeAlpha * pulse;
+    }
+
     public static void drawGui(GuiGraphics guiGraphics, float fadeAlpha) {
+        if (UniversalModLoaderHelper.isProductionEnvironment()) return;
         int alphaBits = Mth.ceil(fadeAlpha * 255.0F) << 24;
         int screenHeight = guiGraphics.guiHeight();
         int gradientTop = screenHeight - screenHeight * GRADIENT_HEIGHT_NUMERATOR / GRADIENT_HEIGHT_DENOMINATOR;
@@ -156,6 +190,7 @@ public final class KhaosLoadingGradient {
     }
 
     public static void drawFramebuffer(int framebufferWidth, int framebufferHeight, float fadeAlpha) {
+        if (UniversalModLoaderHelper.isProductionEnvironment()) return;
         if (fadeAlpha <= 0.0F) return;
         if (!ensureGradientProgram()) return;
 
@@ -188,6 +223,7 @@ public final class KhaosLoadingGradient {
     }
 
     public static void drawGuiIcons(GuiGraphics guiGraphics, float fadeAlpha) {
+        if (UniversalModLoaderHelper.isProductionEnvironment()) return;
         List<LoadingIcon> icons = getLoadedIcons();
         if (icons.isEmpty() || fadeAlpha <= 0.0F) return;
 
@@ -204,10 +240,11 @@ public final class KhaosLoadingGradient {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
 
-        guiGraphics.setColor(1.0F, 1.0F, 1.0F, fadeAlpha);
         for (int i = 0; i < count; i++) {
             LoadingIcon icon = icons.get(i);
             int x = startX + i * (ICON_SIZE + ICON_SPACING);
+            float iconAlpha = computeIconPulseAlpha(i, count, fadeAlpha);
+            guiGraphics.setColor(1.0F, 1.0F, 1.0F, iconAlpha);
             guiGraphics.blit(texture, x, y, ICON_SIZE, ICON_SIZE, icon.u, icon.v, 16, 16, 32, 32);
         }
         guiGraphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
@@ -216,6 +253,7 @@ public final class KhaosLoadingGradient {
     }
 
     public static void drawFramebufferIcons(int framebufferWidth, int framebufferHeight, float fadeAlpha) {
+        if (UniversalModLoaderHelper.isProductionEnvironment()) return;
         List<LoadingIcon> icons = getLoadedIcons();
         if (icons.isEmpty() || fadeAlpha <= 0.0F) return;
         if (!ensureIconProgram()) return;
@@ -241,7 +279,6 @@ public final class KhaosLoadingGradient {
 
         GL30C.glUseProgram(iconProgram);
         GL30C.glUniform2f(iconUniformScreenSize, (float) framebufferWidth, (float) framebufferHeight);
-        GL30C.glUniform1f(iconUniformFadeAlpha, fadeAlpha);
         GL30C.glActiveTexture(GL30C.GL_TEXTURE0);
         GL30C.glBindTexture(GL30C.GL_TEXTURE_2D, textureId);
         GL30C.glUniform1i(iconUniformTex, 0);
@@ -251,6 +288,8 @@ public final class KhaosLoadingGradient {
         for (int i = 0; i < icons.size(); i++) {
             LoadingIcon icon = icons.get(i);
             float x = startX + i * (iconSize + iconSpacing);
+            float iconAlpha = computeIconPulseAlpha(i, icons.size(), fadeAlpha);
+            GL30C.glUniform1f(iconUniformFadeAlpha, iconAlpha);
             GL30C.glUniform2f(iconUniformQuadPosition, x, y);
             GL30C.glUniform2f(iconUniformQuadSize, iconSize, iconSize);
             GL30C.glUniform4f(iconUniformUvRect,
@@ -266,10 +305,11 @@ public final class KhaosLoadingGradient {
 
     private static List<LoadingIcon> getLoadedIcons() {
         if (cachedLoadedIcons == null) {
-            List<LoadingIcon> icons = new ArrayList<>(3);
+            List<LoadingIcon> icons = new ArrayList<>(4);
             if (UniversalModLoaderHelper.isModLoaded("elysium_api")) icons.add(LoadingIcon.ELYSIUM);
             if (UniversalModLoaderHelper.isModLoaded("asphodel_gradle")) icons.add(LoadingIcon.ASPHODEL);
             if (UniversalModLoaderHelper.isModLoaded("tartarus_scripting")) icons.add(LoadingIcon.TARTARUS);
+            if (UniversalModLoaderHelper.isModLoaded("erebus_modmaker")) icons.add(LoadingIcon.EREBUS);
             cachedLoadedIcons = icons;
         }
         return cachedLoadedIcons;

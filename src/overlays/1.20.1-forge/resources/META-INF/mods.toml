@@ -9,6 +9,7 @@ displayName = "${mod_name}"
 authors = "${mod_author}"
 credits = "${credits}"
 description = '''${description}'''
+logoFile = "elysium_api.png"
 
 [[dependencies.${mod_id}]]
 modId = "forge"

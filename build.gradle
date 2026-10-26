@@ -1,8 +1,47 @@
+buildscript {
+    configurations.all {
+        resolutionStrategy {
+            force 'com.github.javaparser:javaparser-core:3.28.2'
+            force 'com.github.javaparser:javaparser-symbol-solver-core:3.28.2'
+            eachDependency { details ->
+                if (details.requested.group == 'com.github.javaparser') {
+                    details.useVersion '3.28.2'
+                }
+            }
+        }
+    }
+}
+
 plugins {
     id 'fabric-loom' version '1.8-SNAPSHOT' apply false
     id 'net.neoforged.moddev' version '2.0.49-beta' apply false
     id 'net.minecraftforge.gradle' version '[6.0.24,6.2)' apply false
     id 'org.spongepowered.mixin' version '0.7-SNAPSHOT' apply false
+}
+
+allprojects { proj ->
+    proj.buildscript.configurations.all {
+        resolutionStrategy {
+            force 'com.github.javaparser:javaparser-core:3.28.2'
+            force 'com.github.javaparser:javaparser-symbol-solver-core:3.28.2'
+            eachDependency { details ->
+                if (details.requested.group == 'com.github.javaparser') {
+                    details.useVersion '3.28.2'
+                }
+            }
+        }
+    }
+    proj.configurations.all {
+        resolutionStrategy {
+            force 'com.github.javaparser:javaparser-core:3.28.2'
+            force 'com.github.javaparser:javaparser-symbol-solver-core:3.28.2'
+            eachDependency { details ->
+                if (details.requested.group == 'com.github.javaparser') {
+                    details.useVersion '3.28.2'
+                }
+            }
+        }
+    }
 }
 
 apply plugin: 'idea'

@@ -9,6 +9,10 @@ displayName = "${mod_name}"
 authors = "${mod_author}"
 credits = "${credits}"
 description = '''${description}'''
+logoFile = "elysium_api.png"
+
+[[accessTransformers]]
+file = "META-INF/elysium_api.accessagent.accesstransformer.cfg"
 
 [[mixins]]
 config = "${mod_id}.mixins.json"

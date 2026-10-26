@@ -1,6 +1,6 @@
 package net.jadenxgamer.elysium_api.impl.mixin.mechanics;
 
-import net.jadenxgamer.elysium_api.api.interfaces.IElysiumBlock;
+import net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.state.BlockState;

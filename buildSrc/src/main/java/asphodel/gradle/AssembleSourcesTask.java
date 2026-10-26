@@ -1,11 +1,24 @@
 package asphodel.gradle;
 
+import asphodel.gradle.directives.EjectDirective;
 import asphodel.gradle.directives.MergeDirective;
+import asphodel.gradle.directives.MixinDirective;
 import asphodel.gradle.directives.PatchDirective;
 import asphodel.gradle.transformers.ImportTransformer;
 import asphodel.gradle.transformers.PatchTransformer;
-import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParseResult;
+import com.github.javaparser.ParserConfiguration;
+import com.github.javaparser.Range;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.ConfigurableFileCollection;
@@ -37,6 +50,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -45,8 +59,18 @@ import java.util.stream.Stream;
 @CacheableTask
 public abstract class AssembleSourcesTask extends DefaultTask {
 
+    private static final ParserConfiguration PARSER_CONFIGURATION;
+
+    static {
+        PARSER_CONFIGURATION = new ParserConfiguration();
+        PARSER_CONFIGURATION.setLanguageLevel(ParserConfiguration.LanguageLevel.BLEEDING_EDGE);
+    }
+
     private static final Pattern MERGE_DIRECTIVE_PATTERN = Pattern.compile(
             "^\\s*//\\s*asphodel::merge\\s*->\\s*(.+?)\\s*$");
+
+    private static final Pattern EJECT_DIRECTIVE_PATTERN = Pattern.compile(
+            "^\\s*//\\s*asphodel::eject\\s*->\\s*(.*?)\\s*$");
 
     private static final Pattern PACKAGE_PATTERN = Pattern.compile(
             "^\\s*package\\s+([A-Za-z_][A-Za-z0-9_.]*)\\s*;",
@@ -55,7 +79,7 @@ public abstract class AssembleSourcesTask extends DefaultTask {
     private static final Pattern FULLY_QUALIFIED_NAME_PATTERN = Pattern.compile(
             "^[A-Za-z_][A-Za-z0-9_.]*$");
 
-    private static final int STATE_VERSION = 4;
+    private static final int STATE_VERSION = 6;
 
     @InputFiles
     @Incremental
@@ -94,6 +118,8 @@ public abstract class AssembleSourcesTask extends DefaultTask {
 
     @TaskAction
     public void execute(InputChanges inputChanges) throws IOException {
+        verifyParserCapability();
+
         Path outputJavaDirectory = getOutputJavaDir().get().getAsFile().toPath();
         Path outputResourcesDirectory = getOutputResourcesDir().get().getAsFile().toPath();
         Path stateFilePath = getStateFile().get().getAsFile().toPath();
@@ -109,6 +135,7 @@ public abstract class AssembleSourcesTask extends DefaultTask {
             Files.createDirectories(outputResourcesDirectory);
             currentState = scanAllSources();
             applyResources(outputResourcesDirectory);
+            applyMixinDirectives(currentState, outputResourcesDirectory);
             rebuildAllOutputs(currentState, outputJavaDirectory);
         } else {
             Files.createDirectories(outputJavaDirectory);
@@ -116,9 +143,19 @@ public abstract class AssembleSourcesTask extends DefaultTask {
             clearDirectory(outputResourcesDirectory);
             applyResources(outputResourcesDirectory);
             currentState = rebuildIncremental(previousState, outputJavaDirectory, inputChanges);
+            applyMixinDirectives(currentState, outputResourcesDirectory);
         }
 
         currentState.save(stateFilePath, projectBasePath);
+    }
+
+    private void verifyParserCapability() {
+        String probeSource = "class AsphodelParserCapabilityProbe { boolean probe(Object candidate) { return candidate instanceof String name; } }";
+        if (!new JavaParser(PARSER_CONFIGURATION).parse(probeSource).isSuccessful()) {
+            throw new GradleException("Asphodel requires com.github.javaparser:javaparser-core 3.28.2 on the buildSrc classpath; "
+                    + "the currently loaded parser cannot handle Java 16+ syntax. Check buildSrc/build.gradle and verify "
+                    + "no plugin is shadowing the parser artifact.");
+        }
     }
 
     private SourceState scanAllSources() throws IOException {
@@ -149,15 +186,37 @@ public abstract class AssembleSourcesTask extends DefaultTask {
         String raw = Files.readString(normalized);
         List<MergeDirective> mergeDirectives = parseMergeDirectives(raw);
         List<PatchDirective> patchDirectives = parsePatchDirectives(raw);
+        List<MixinDirective> mixinDirectives = parseMixinDirectives(raw);
+
+        String normalizedSource = raw.replace("\r\n", "\n").replace('\r', '\n');
+        int packageLine = findPackageLine(normalizedSource);
+        List<EjectDirective> ejectDirectives = parseEjectDirectives(normalizedSource, packageLine, normalized.toString());
+        boolean ejected = isEjected(ejectDirectives, getTargetLoader().get(), getTargetVersion().get());
+
         boolean hasAsphodelMarkers = raw.contains("asphodel::merge")
                 || raw.contains("asphodel::patch")
-                || raw.contains("asphodel::import");
+                || raw.contains("asphodel::import")
+                || raw.contains("asphodel::mixin")
+                || raw.contains("asphodel::eject");
+
         Matcher packageMatcher = PACKAGE_PATTERN.matcher(raw);
         String packageName = packageMatcher.find() ? packageMatcher.group(1) : "";
         String fileName = normalized.getFileName().toString();
         String simpleClassName = fileName.substring(0, fileName.length() - ".java".length());
         String fqn = packageName.isEmpty() ? simpleClassName : packageName + "." + simpleClassName;
-        return new SourceEntry(normalized, fqn, mergeDirectives, patchDirectives, hasAsphodelMarkers);
+        return new SourceEntry(normalized, fqn, mergeDirectives, patchDirectives, mixinDirectives, hasAsphodelMarkers, ejected);
+    }
+
+    private static int findPackageLine(String normalizedSource) {
+        String[] lines = normalizedSource.split("\n", -1);
+        for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            String stripped = lines[lineIndex].strip();
+            if (stripped.startsWith("package ") && stripped.endsWith(";")) return lineIndex + 1;
+            if (!stripped.isEmpty() && !stripped.startsWith("//") && !stripped.startsWith("/*") && !stripped.startsWith("*")) {
+                break;
+            }
+        }
+        return -1;
     }
 
     private void rebuildAllOutputs(SourceState state, Path outputJavaDirectory) throws IOException {
@@ -179,7 +238,7 @@ public abstract class AssembleSourcesTask extends DefaultTask {
     private SourceState rebuildIncremental(SourceState previousState, Path outputJavaDirectory, InputChanges inputChanges) throws IOException {
         SourceState currentState = new SourceState();
         for (SourceEntry previousEntry : previousState.all()) {
-            currentState.put(new SourceEntry(previousEntry.path, previousEntry.fqn, previousEntry.mergeDirectives, previousEntry.patchDirectives, previousEntry.hasAsphodelMarkers));
+            currentState.put(new SourceEntry(previousEntry.path, previousEntry.fqn, previousEntry.mergeDirectives, previousEntry.patchDirectives, previousEntry.mixinDirectives, previousEntry.hasAsphodelMarkers, previousEntry.ejected));
         }
 
         Set<String> changedClassNames = new HashSet<>();
@@ -229,8 +288,16 @@ public abstract class AssembleSourcesTask extends DefaultTask {
 
         Set<String> previousOutputClassNames = new HashSet<>(previousState.fqns());
         previousOutputClassNames.removeAll(previousConsumedClassNames);
+        previousOutputClassNames.removeIf(fqn -> {
+            SourceEntry entry = previousState.get(fqn);
+            return entry != null && entry.ejected;
+        });
         Set<String> currentOutputClassNames = new HashSet<>(currentState.fqns());
         currentOutputClassNames.removeAll(currentConsumedClassNames);
+        currentOutputClassNames.removeIf(fqn -> {
+            SourceEntry entry = currentState.get(fqn);
+            return entry != null && entry.ejected;
+        });
 
         for (String previousOutputClassName : previousOutputClassNames) {
             if (!currentOutputClassNames.contains(previousOutputClassName)) deleteOutput(outputJavaDirectory, previousOutputClassName);
@@ -264,6 +331,8 @@ public abstract class AssembleSourcesTask extends DefaultTask {
 
     private void writeOutput(CompilationUnitMerger unitMerger, SourceState state, SourceEntry entry,
                              List<String> targetClassNames, Path outputJavaDirectory) throws IOException {
+        if (entry.ejected) return;
+
         Path destinationFile = outputJavaDirectory.resolve(entry.fqn.replace('.', '/') + ".java");
         Files.createDirectories(destinationFile.getParent());
         if (targetClassNames == null || targetClassNames.isEmpty()) {
@@ -304,12 +373,19 @@ public abstract class AssembleSourcesTask extends DefaultTask {
 
     private void parseEntryIfNeeded(SourceEntry entry) {
         if (entry.parsedUnit != null) return;
+        entry.parsedUnit = parseSource(entry.patchedSource, entry.path.toString());
+    }
 
-        try {
-            entry.parsedUnit = StaticJavaParser.parse(entry.patchedSource);
-        } catch (Exception parseException) {
-            throw new GradleException("Failed to parse " + entry.path + ": " + parseException.getMessage(), parseException);
+    private CompilationUnit parseSource(String source, String description) {
+        ParseResult<CompilationUnit> result = new JavaParser(PARSER_CONFIGURATION).parse(source);
+        if (!result.isSuccessful()) {
+            throw new GradleException("Failed to parse " + description + ": " + result.getProblems());
         }
+        CompilationUnit parsedUnit = result.getResult().orElse(null);
+        if (parsedUnit == null) {
+            throw new GradleException("Parser returned no compilation unit for " + description);
+        }
+        return parsedUnit;
     }
 
     private void parseEntries(SourceState state, Set<String> classNamesToParse) {
@@ -422,6 +498,95 @@ public abstract class AssembleSourcesTask extends DefaultTask {
         return patchDirectives;
     }
 
+    private static List<MixinDirective> parseMixinDirectives(String source) {
+        List<MixinDirective> mixinDirectives = new ArrayList<>();
+        String normalizedSource = source.replace("\r\n", "\n").replace('\r', '\n');
+        String[] lines = normalizedSource.split("\n", -1);
+        for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            MixinDirective mixinDirective = parseMixinDirective(lines[lineIndex], lineIndex + 1);
+            if (mixinDirective != null) mixinDirectives.add(mixinDirective);
+        }
+        return mixinDirectives;
+    }
+
+    private static MixinDirective parseMixinDirective(String line, int lineNumber) {
+        String trimmed = line.stripLeading();
+        if (!trimmed.startsWith("//")) return null;
+        String body = trimmed.substring(2).stripLeading();
+        if (!body.startsWith("asphodel::mixin")) return null;
+        String afterKeyword = body.substring("asphodel::mixin".length()).stripLeading();
+        if (!afterKeyword.startsWith("->")) return null;
+        String directiveBody = afterKeyword.substring(2).strip();
+
+        String loader = null;
+        String version = null;
+        String file = null;
+        String env = "common";
+        for (String token : directiveBody.replace("->", ",").split(",")) {
+            int equalsIndex = token.indexOf('=');
+            if (equalsIndex < 0) continue;
+            String key = token.substring(0, equalsIndex).trim().toLowerCase();
+            String value = token.substring(equalsIndex + 1).trim();
+            if (value.isEmpty()) continue;
+            switch (key) {
+                case "loader" -> loader = value;
+                case "version" -> version = value;
+                case "file" -> file = value;
+                case "env" -> env = value.toLowerCase();
+            }
+        }
+        if (file == null) return null;
+        if (!env.equals("common") && !env.equals("client") && !env.equals("server")) return null;
+        return new MixinDirective(loader, version, file, env, lineNumber);
+    }
+
+    private List<EjectDirective> parseEjectDirectives(String normalizedSource, int packageLine, String sourcePath) {
+        List<EjectDirective> ejectDirectives = new ArrayList<>();
+        String[] lines = normalizedSource.split("\n", -1);
+        for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            EjectDirective ejectDirective = parseEjectDirective(lines[lineIndex]);
+            if (ejectDirective == null) continue;
+
+            int lineNumber = lineIndex + 1;
+            if (packageLine > 0 && lineNumber >= packageLine) {
+                getLogger().warn("[{}] asphodel::eject at line {} must be placed above the package declaration at line {}; ignoring",
+                        sourcePath, lineNumber, packageLine);
+                continue;
+            }
+            ejectDirectives.add(ejectDirective);
+        }
+        return ejectDirectives;
+    }
+
+    private static EjectDirective parseEjectDirective(String line) {
+        Matcher ejectMatcher = EJECT_DIRECTIVE_PATTERN.matcher(line);
+        if (!ejectMatcher.matches()) return null;
+
+        String conditions = ejectMatcher.group(1);
+        String loaderPattern = null;
+        String versionPattern = null;
+        for (String token : conditions.replace("->", ",").split(",")) {
+            int equalsIndex = token.indexOf('=');
+            if (equalsIndex < 0) continue;
+            String key = token.substring(0, equalsIndex).trim().toLowerCase();
+            String value = token.substring(equalsIndex + 1).trim();
+            if (value.isEmpty()) continue;
+            switch (key) {
+                case "loader" -> loaderPattern = value;
+                case "version" -> versionPattern = value;
+                default -> {}
+            }
+        }
+        return new EjectDirective(loaderPattern, versionPattern);
+    }
+
+    private static boolean isEjected(List<EjectDirective> ejectDirectives, String loader, String version) {
+        for (EjectDirective ejectDirective : ejectDirectives) {
+            if (ejectDirective.matches(loader, version)) return true;
+        }
+        return false;
+    }
+
     private void applyResources(Path outputResourcesDirectory) throws IOException {
         Set<String> copiedRelativePaths = new HashSet<>();
         copyDirectoryTree(getLoaderResourcesDir(), outputResourcesDirectory, copiedRelativePaths);
@@ -447,6 +612,169 @@ public abstract class AssembleSourcesTask extends DefaultTask {
         }
     }
 
+    private void applyMixinDirectives(SourceState state, Path outputResourcesDirectory) {
+        Path resourcesRoot = outputResourcesDirectory.toAbsolutePath().normalize();
+        Map<Path, List<PendingMixinAddition>> additionsByFile = new LinkedHashMap<>();
+
+        for (SourceEntry entry : state.all()) {
+            if (entry.ejected) continue;
+            if (entry.mixinDirectives.isEmpty()) continue;
+
+            try {
+                ensurePatchedSource(entry);
+            } catch (IOException readException) {
+                throw new GradleException("Failed to read " + entry.path + ": " + readException.getMessage(), readException);
+            }
+            parseEntryIfNeeded(entry);
+
+            CompilationUnit compilationUnit = entry.parsedUnit;
+            if (compilationUnit.getTypes().isEmpty()) {
+                getLogger().warn("[{}] asphodel::mixin directive found but the file declares no types; ignoring", entry.fqn);
+                continue;
+            }
+
+            TypeDeclaration<?> mixinType = null;
+            for (TypeDeclaration<?> type : compilationUnit.getTypes()) {
+                if (type.getAnnotationByName("Mixin").isPresent()) {
+                    mixinType = type;
+                    break;
+                }
+            }
+            if (mixinType == null) {
+                getLogger().warn("[{}] class is not a mixin file; ignoring asphodel::mixin directives", entry.fqn);
+                continue;
+            }
+
+            Optional<AnnotationExpr> mixinAnnotation = mixinType.getAnnotationByName("Mixin");
+            Optional<Range> mixinRange = mixinAnnotation.get().getRange();
+            if (mixinRange.isEmpty()) {
+                getLogger().warn("[{}] asphodel::mixin directive found but the @Mixin annotation location is unknown; ignoring", entry.fqn);
+                continue;
+            }
+            int mixinLine = mixinRange.get().begin.line;
+
+            for (MixinDirective directive : entry.mixinDirectives) {
+                if (directive.line() >= mixinLine) {
+                    getLogger().warn("[{}] asphodel::mixin directive on line {} must be placed above the @Mixin annotation on line {}; ignoring",
+                            entry.fqn, directive.line(), mixinLine);
+                    continue;
+                }
+                if (!directive.matches(getTargetLoader().get(), getTargetVersion().get())) continue;
+
+                Path targetFile = resourcesRoot.resolve(directive.file()).normalize();
+                if (!targetFile.startsWith(resourcesRoot)) {
+                    getLogger().warn("[{}] asphodel::mixin targets '{}' which escapes the resources root; ignoring", entry.fqn, directive.file());
+                    continue;
+                }
+                if (!Files.isRegularFile(targetFile)) {
+                    getLogger().warn("[{}] asphodel::mixin targets '{}' but the file does not exist in resources; ignoring", entry.fqn, directive.file());
+                    continue;
+                }
+                additionsByFile.computeIfAbsent(targetFile, path -> new ArrayList<>())
+                        .add(new PendingMixinAddition(entry.fqn, directive.env()));
+            }
+        }
+
+        for (Map.Entry<Path, List<PendingMixinAddition>> additionsEntry : additionsByFile.entrySet()) {
+            applyMixinAdditions(additionsEntry.getKey(), additionsEntry.getValue());
+        }
+    }
+
+    private void applyMixinAdditions(Path targetFile, List<PendingMixinAddition> additions) {
+        JsonObject root;
+        try {
+            String content = Files.readString(targetFile);
+            JsonElement parsed = JsonParser.parseString(content);
+            if (!parsed.isJsonObject()) {
+                getLogger().warn("Mixin file '{}' is not a JSON object; skipping asphodel::mixin additions", targetFile.getFileName());
+                return;
+            }
+            root = parsed.getAsJsonObject();
+        } catch (IOException readException) {
+            getLogger().warn("Failed to read mixin file '{}': {}; skipping asphodel::mixin additions", targetFile.getFileName(), readException.getMessage());
+            return;
+        } catch (RuntimeException parseException) {
+            getLogger().warn("Failed to parse mixin file '{}': {}; skipping asphodel::mixin additions", targetFile.getFileName(), parseException.getMessage());
+            return;
+        }
+
+        if (!root.has("package") || !root.get("package").isJsonPrimitive() || !root.getAsJsonPrimitive("package").isString()) {
+            getLogger().warn("Mixin file '{}' has no string 'package' field; skipping asphodel::mixin additions", targetFile.getFileName());
+            return;
+        }
+        String packageName = root.get("package").getAsString();
+        if (packageName.isEmpty()) {
+            getLogger().warn("Mixin file '{}' has an empty 'package' field; skipping asphodel::mixin additions", targetFile.getFileName());
+            return;
+        }
+        String packagePrefix = packageName.endsWith(".") ? packageName : packageName + ".";
+
+        boolean changed = false;
+        for (PendingMixinAddition addition : additions) {
+            if (!addition.classFqn().startsWith(packagePrefix)) {
+                getLogger().warn("[{}] class is not within the mixin file's package '{}'; skipping addition to '{}'",
+                        addition.classFqn(), packageName, targetFile.getFileName());
+                continue;
+            }
+            String relativeName = addition.classFqn().substring(packagePrefix.length());
+            String arrayName = switch (addition.env()) {
+                case "common" -> "mixins";
+                case "client" -> "client";
+                case "server" -> "server";
+                default -> null;
+            };
+            if (arrayName == null) continue;
+
+            JsonArray array;
+            if (root.has(arrayName)) {
+                JsonElement existing = root.get(arrayName);
+                if (!existing.isJsonArray()) {
+                    getLogger().warn("Mixin file '{}' has a non-array '{}' field; skipping", targetFile.getFileName(), arrayName);
+                    continue;
+                }
+                array = existing.getAsJsonArray();
+            } else {
+                array = new JsonArray();
+                root.add(arrayName, array);
+            }
+
+            boolean alreadyPresent = false;
+            for (JsonElement element : array) {
+                if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString() && element.getAsString().equals(relativeName)) {
+                    alreadyPresent = true;
+                    break;
+                }
+            }
+            if (alreadyPresent) {
+                getLogger().warn("[{}] mixin entry '{}' is already present in the '{}' array of '{}'; skipping",
+                        addition.classFqn(), relativeName, arrayName, targetFile.getFileName());
+                continue;
+            }
+            array.add(relativeName);
+            changed = true;
+        }
+
+        if (!changed) return;
+
+        JsonObject reordered = new JsonObject();
+        for (Map.Entry<String, JsonElement> field : root.entrySet()) {
+            String key = field.getKey();
+            if (key.equals("mixins") || key.equals("client") || key.equals("server")) continue;
+            reordered.add(key, field.getValue());
+        }
+        for (String key : new String[]{"mixins", "client", "server"}) {
+            if (root.has(key)) reordered.add(key, root.get(key));
+        }
+
+        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        String output = gson.toJson(reordered) + "\n";
+        try {
+            Files.writeString(targetFile, output);
+        } catch (IOException writeException) {
+            throw new GradleException("Failed to write mixin file " + targetFile + ": " + writeException.getMessage(), writeException);
+        }
+    }
+
     private static void deleteOutput(Path outputJavaDirectory, String fullyQualifiedClassName) throws IOException {
         Files.deleteIfExists(outputJavaDirectory.resolve(
                 fullyQualifiedClassName.replace('.', '/') + ".java"));
@@ -461,21 +789,27 @@ public abstract class AssembleSourcesTask extends DefaultTask {
         }
     }
 
+    private record PendingMixinAddition(String classFqn, String env) {}
+
     private static final class SourceEntry {
         final Path path;
         final String fqn;
         final List<MergeDirective> mergeDirectives;
         final List<PatchDirective> patchDirectives;
+        final List<MixinDirective> mixinDirectives;
         final boolean hasAsphodelMarkers;
+        final boolean ejected;
         CompilationUnit parsedUnit;
         String patchedSource;
 
-        SourceEntry(Path path, String fqn, List<MergeDirective> mergeDirectives, List<PatchDirective> patchDirectives, boolean hasAsphodelMarkers) {
+        SourceEntry(Path path, String fqn, List<MergeDirective> mergeDirectives, List<PatchDirective> patchDirectives, List<MixinDirective> mixinDirectives, boolean hasAsphodelMarkers, boolean ejected) {
             this.path = path;
             this.fqn = fqn;
             this.mergeDirectives = mergeDirectives;
             this.patchDirectives = patchDirectives;
+            this.mixinDirectives = mixinDirectives;
             this.hasAsphodelMarkers = hasAsphodelMarkers;
+            this.ejected = ejected;
         }
 
         boolean hasAnyDirectives() {
@@ -547,6 +881,20 @@ public abstract class AssembleSourcesTask extends DefaultTask {
                             .append('\t')
                             .append(patchDirective.id());
                 }
+                stateBuilder.append('\t').append(entry.mixinDirectives.size());
+                for (MixinDirective mixinDirective : entry.mixinDirectives) {
+                    stateBuilder.append('\t')
+                            .append(mixinDirective.loader() == null ? "" : mixinDirective.loader())
+                            .append('\t')
+                            .append(mixinDirective.version() == null ? "" : mixinDirective.version())
+                            .append('\t')
+                            .append(mixinDirective.file())
+                            .append('\t')
+                            .append(mixinDirective.env())
+                            .append('\t')
+                            .append(mixinDirective.line());
+                }
+                stateBuilder.append('\t').append(entry.ejected ? "true" : "false");
                 stateBuilder.append('\n');
             }
             Files.createDirectories(stateFilePath.getParent());
@@ -589,7 +937,24 @@ public abstract class AssembleSourcesTask extends DefaultTask {
                         patchDirectives.add(new PatchDirective(loaderPattern, versionPattern, fields[fieldIndex + 2]));
                         fieldIndex += 3;
                     }
-                    loadedState.put(new SourceEntry(entrypath, fields[1], mergeDirectives, patchDirectives, hasAsphodelMarkers));
+                    if (fieldIndex >= fields.length) continue;
+
+                    int mixinDirectiveCount = Integer.parseInt(fields[fieldIndex++]);
+                    List<MixinDirective> mixinDirectives = new ArrayList<>(mixinDirectiveCount);
+                    for (int mixinIndex = 0; mixinIndex < mixinDirectiveCount; mixinIndex++) {
+                        String loaderPattern = fields[fieldIndex].isEmpty() ? null : fields[fieldIndex];
+                        String versionPattern = fields[fieldIndex + 1].isEmpty() ? null : fields[fieldIndex + 1];
+                        String file = fields[fieldIndex + 2];
+                        String env = fields[fieldIndex + 3];
+                        int line = Integer.parseInt(fields[fieldIndex + 4]);
+                        mixinDirectives.add(new MixinDirective(loaderPattern, versionPattern, file, env, line));
+                        fieldIndex += 5;
+                    }
+                    if (fieldIndex >= fields.length) continue;
+
+                    boolean ejected = Boolean.parseBoolean(fields[fieldIndex]);
+
+                    loadedState.put(new SourceEntry(entrypath, fields[1], mergeDirectives, patchDirectives, mixinDirectives, hasAsphodelMarkers, ejected));
                 }
                 return loadedState;
             } catch (Exception loadException) { return null; }

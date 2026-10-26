@@ -5,7 +5,8 @@
   "refmap": "${mod_id}.neoforge.refmap.json",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "block.BlockMixinN21"
+    "block.BlockMixinN21",
+    "mechanics.PistonStructureResolverNMixin"
   ],
   "client": [
     "client.NeoForgeLoadingOverlayMixin"

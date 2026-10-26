@@ -1,6 +1,6 @@
 package net.jadenxgamer.elysium_api.merge.block;
 
-import net.jadenxgamer.elysium_api.api.interfaces.IElysiumBlock;
+import net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;

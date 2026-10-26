@@ -6,6 +6,20 @@ repositories {
     mavenCentral()
 }
 
+configurations.all {
+    resolutionStrategy {
+        force 'com.github.javaparser:javaparser-core:3.28.2'
+        force 'com.github.javaparser:javaparser-symbol-solver-core:3.28.2'
+        eachDependency { details ->
+            if (details.requested.group == 'com.github.javaparser') {
+                details.useVersion '3.28.2'
+            }
+        }
+    }
+}
+
 dependencies {
-    implementation 'com.github.javaparser:javaparser-symbol-solver-core:3.26.2'
+    implementation 'com.github.javaparser:javaparser-core:3.28.2'
+    implementation 'com.github.javaparser:javaparser-symbol-solver-core:3.28.2'
+    implementation 'com.google.code.gson:gson:2.10.1'
 }

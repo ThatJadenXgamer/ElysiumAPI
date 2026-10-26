@@ -223,7 +223,7 @@ public final class PatchTransformer {
         if (!body.startsWith("asphodel::")) return null;
         body = body.substring("asphodel::".length()).stripLeading();
 
-        for (String keyword : new String[]{"patch", "merge"}) {
+        for (String keyword : new String[]{"patch", "merge", "mixin", "eject"}) {
             if (body.startsWith(keyword)) {
                 String rest = body.substring(keyword.length()).stripLeading();
                 if (rest.startsWith("->")) return new String[]{keyword, rest.substring(2).strip()};

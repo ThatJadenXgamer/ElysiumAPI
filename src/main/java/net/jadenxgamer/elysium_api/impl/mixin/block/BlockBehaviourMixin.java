@@ -7,4 +7,4 @@ import org.spongepowered.asm.mixin.Mixin;
 
 @Mixin(BlockBehaviour.class)
 public abstract class BlockBehaviourMixin {}
-// refer to the merges for actual implementations
+// refer to the asphodel merge FQNs for actual implementations

@@ -164,6 +164,41 @@ project.afterEvaluate {
         }
     }
 
+    def generatedAccessDir = layout.buildDirectory.dir('generated/access').get().asFile
+    asphodel.gradle.access.AccessAgentProcessor.process(rootProject.projectDir.toPath(), loader, mcVer, generatedAccessDir.toPath(), logger)
+
+    def registerAccessTransformers = { Object extension, File atFile, String pluginName, String extensionName ->
+        if (extension == null) {
+            logger.warn("Asphodel: source-set '{}' is configured with loader '{}' but no '{}' extension is available on the project; skipping access transformer auto-registration", project.path, loader, extensionName)
+            return
+        }
+        try {
+            extension.accessTransformers.from(atFile)
+            logger.info("Asphodel: auto-registered merged access transformer with {} on '{}'", pluginName, project.path)
+        } catch (Exception ex) {
+            logger.warn("Asphodel: failed to auto-register merged access transformer with {} on '{}': {}. Register it manually in build.gradle via '{}.accessTransformers.from(file(\"build/generated/access/merged.accesstransformer.cfg\"))'.", pluginName, project.path, ex.message, extensionName)
+        }
+    }
+
+    if (loader == 'vanilla' || loader == 'fabric') {
+        def loomExtension = project.extensions.findByName('loom')
+        if (loomExtension != null) {
+            loomExtension.accessWidenerPath.set(layout.buildDirectory.file('generated/access/merged.accesswidener'))
+        } else logger.warn("Asphodel: source-set '{}' is configured with loader '{}' but no Loom plugin is applied; skipping accessWidenerPath auto-wiring", project.path, loader)
+    } else if (loader == 'forge') {
+        registerAccessTransformers(project.extensions.findByName('minecraft'),
+                layout.buildDirectory.file('generated/access/merged.accesstransformer.cfg').get().asFile, 'ForgeGradle', 'minecraft')
+    } else if (loader == 'neoforge') {
+        def neoForgeExtension = project.extensions.findByName('neoForge')
+        def neoForgeExtensionName = 'neoForge'
+        if (neoForgeExtension == null) {
+            neoForgeExtension = project.extensions.findByName('minecraft')
+            neoForgeExtensionName = 'minecraft'
+        }
+        registerAccessTransformers(neoForgeExtension,
+                layout.buildDirectory.file('generated/access/merged.accesstransformer.cfg').get().asFile, 'ModDevGradle', neoForgeExtensionName)
+    }
+
     tasks.named('processResources', ProcessResources) {
         dependsOn assembleTask
 

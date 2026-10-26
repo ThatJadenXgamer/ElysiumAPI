@@ -7,10 +7,11 @@
   "mixins": [
     "block.BlockBehaviourMixin",
     "block.BlockMixin",
-    "mechanics.PistonStructureResolverMixin",
     "misc.TagLoaderMixin",
     "block.FireBlockAccessor",
-    "block.BlockInvoker"
+    "block.BlockAccessor",
+    "block.BlockPropertiesAccessor",
+    "block.BlockBehaviourAccessor"
   ],
   "client": [
     "client.LoadingOverlayMixin"

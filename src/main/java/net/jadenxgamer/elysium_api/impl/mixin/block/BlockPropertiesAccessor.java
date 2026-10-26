@@ -1,0 +1,75 @@
+package net.jadenxgamer.elysium_api.impl.mixin.block;
+
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.flag.FeatureFlagSet;
+import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.block.state.BlockBehaviour;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.NoteBlockInstrument;
+import net.minecraft.world.level.material.MapColor;
+import net.minecraft.world.level.material.PushReaction;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.gen.Accessor;
+
+import java.util.function.Function;
+import java.util.function.ToIntFunction;
+
+@Mixin(BlockBehaviour.Properties.class)
+public interface BlockPropertiesAccessor {
+    @Accessor("destroyTime") float getDestroyTime();
+    @Accessor("destroyTime") void setDestroyTime(float value);
+    @Accessor("explosionResistance") float getExplosionResistance();
+    @Accessor("explosionResistance") void setExplosionResistance(float value);
+    @Accessor("hasCollision") boolean getHasCollision();
+    @Accessor("hasCollision") void setHasCollision(boolean value);
+    @Accessor("isRandomlyTicking") boolean getIsRandomlyTicking();
+    @Accessor("isRandomlyTicking") void setIsRandomlyTicking(boolean value);
+    @Accessor("lightEmission") ToIntFunction<BlockState> getLightEmission();
+    @Accessor("lightEmission") void setLightEmission(ToIntFunction<BlockState> value);
+    @Accessor("mapColor") Function<BlockState, MapColor> getMapColor();
+    @Accessor("mapColor") void setMapColor(Function<BlockState, MapColor> value);
+    @Accessor("soundType") SoundType getSoundType();
+    @Accessor("soundType") void setSoundType(SoundType value);
+    @Accessor("friction") float getFriction();
+    @Accessor("friction") void setFriction(float value);
+    @Accessor("speedFactor") float getSpeedFactor();
+    @Accessor("speedFactor") void setSpeedFactor(float value);
+    @Accessor("jumpFactor") float getJumpFactor();
+    @Accessor("jumpFactor") void setJumpFactor(float value);
+    @Accessor("canOcclude") boolean getCanOcclude();
+    @Accessor("canOcclude") void setCanOcclude(boolean value);
+    @Accessor("isAir") boolean getIsAir();
+    @Accessor("isAir") void setIsAir(boolean value);
+    @Accessor("ignitedByLava") boolean getIgnitedByLava();
+    @Accessor("ignitedByLava") void setIgnitedByLava(boolean value);
+    @Accessor("liquid") boolean getLiquid();
+    @Accessor("liquid") void setLiquid(boolean value);
+    @Accessor("forceSolidOff") boolean getForceSolidOff();
+    @Accessor("forceSolidOff") void setForceSolidOff(boolean value);
+    @Accessor("forceSolidOn") boolean getForceSolidOn();
+    @Accessor("forceSolidOn") void setForceSolidOn(boolean value);
+    @Accessor("pushReaction") PushReaction getPushReaction();
+    @Accessor("pushReaction") void setPushReaction(PushReaction value);
+    @Accessor("instrument") NoteBlockInstrument getInstrument();
+    @Accessor("instrument") void setInstrument(NoteBlockInstrument value);
+    @Accessor("replaceable") boolean getReplaceable();
+    @Accessor("replaceable") void setReplaceable(boolean value);
+    @Accessor("isValidSpawn") BlockBehaviour.StateArgumentPredicate<EntityType<?>> getIsValidSpawn();
+    @Accessor("isValidSpawn") void setIsValidSpawn(BlockBehaviour.StateArgumentPredicate<EntityType<?>> value);
+    @Accessor("isRedstoneConductor") BlockBehaviour.StatePredicate getIsRedstoneConductor();
+    @Accessor("isRedstoneConductor") void setIsRedstoneConductor(BlockBehaviour.StatePredicate value);
+    @Accessor("isSuffocating") BlockBehaviour.StatePredicate getIsSuffocating();
+    @Accessor("isSuffocating") void setIsSuffocating(BlockBehaviour.StatePredicate value);
+    @Accessor("isViewBlocking") BlockBehaviour.StatePredicate getIsViewBlocking();
+    @Accessor("isViewBlocking") void setIsViewBlocking(BlockBehaviour.StatePredicate value);
+    @Accessor("hasPostProcess") BlockBehaviour.StatePredicate getHasPostProcess();
+    @Accessor("hasPostProcess") void setHasPostProcess(BlockBehaviour.StatePredicate value);
+    @Accessor("emissiveRendering") BlockBehaviour.StatePredicate getEmissiveRendering();
+    @Accessor("emissiveRendering") void setEmissiveRendering(BlockBehaviour.StatePredicate value);
+    @Accessor("dynamicShape") boolean getDynamicShape();
+    @Accessor("dynamicShape") void setDynamicShape(boolean value);
+    @Accessor("requiredFeatures") FeatureFlagSet getRequiredFeatures();
+    @Accessor("requiredFeatures") void setRequiredFeatures(FeatureFlagSet value);
+    @Accessor("requiresCorrectToolForDrops") boolean getRequiresCorrectToolForDrops();
+    @Accessor("requiresCorrectToolForDrops") void setRequiresCorrectToolForDrops(boolean value);
+}

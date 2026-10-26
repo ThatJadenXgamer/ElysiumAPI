@@ -1,13 +1,15 @@
 package net.jadenxgamer.elysium_api.merge.block;
 
 import java.util.List;
-import net.jadenxgamer.elysium_api.api.interfaces.IElysiumBlock;
+import net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock;
+import net.jadenxgamer.elysium_api.impl.util.IElysiumTooltipContext;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
@@ -42,7 +44,9 @@ public abstract class BlockMixin21 implements IElysiumBlock {
             at = @At("HEAD"), cancellable = true
     )
     private void elysium$appendHoverText(ItemStack stack, Item.TooltipContext context, List<Component> tooltip, TooltipFlag flag, CallbackInfo ci) {
-        this.elysiumAppendHoverText(stack, tooltip, flag);
+        var elysiumContext = (IElysiumTooltipContext) context;
+        BlockGetter level = elysiumContext.elysium$getLevel();
+        this.elysiumAppendHoverText(stack, level, tooltip, flag);
         ci.cancel();
     }
 }

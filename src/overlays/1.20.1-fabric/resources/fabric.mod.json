@@ -8,11 +8,13 @@
     "${mod_author}"
   ],
   "license": "${license}",
+  "accessWidener": "elysium_api.accessagent.accesswidener",
   "mixins": [
     "elysium_api.mixins.json",
     "elysium_api.20.mixins.json",
     "elysium_api.fabric.mixins.json"
   ],
+  "icon": "elysium_api_square.png",
   "environment": "*",
   "entrypoints": {
     "main": [
