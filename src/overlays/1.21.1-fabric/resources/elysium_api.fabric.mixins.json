@@ -29,7 +29,8 @@
     "entity.LivingEntityFMixin",
     "entity.WitherBossFMixin",
     "entity.EnderDragonFMixin",
-    "entity.ItemEntityFMixin"
+    "entity.ItemEntityFMixin",
+    "registry.RegistryDataLoaderAccessorF21"
   ],
   "client": [
     "client.model.ModelBlockRendererFMixin",

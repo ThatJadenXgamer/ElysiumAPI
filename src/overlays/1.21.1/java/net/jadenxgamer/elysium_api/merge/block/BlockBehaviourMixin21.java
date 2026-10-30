@@ -1,6 +1,8 @@
 package net.jadenxgamer.elysium_api.merge.block;
 
 import net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock;
+import net.jadenxgamer.elysium_api.api.util.RegistryAccessHelper;
+import net.jadenxgamer.elysium_api.impl.registry.ElysiumRegistries;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
@@ -10,6 +12,7 @@ import net.minecraft.world.ItemInteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.pathfinder.PathComputationType;
@@ -67,5 +70,18 @@ public abstract class BlockBehaviourMixin21 {
         if (result == InteractionResult.FAIL) return ItemInteractionResult.FAIL;
 
         return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
+    }
+
+    @Inject(
+            method = "getSoundType",
+            at = @At("HEAD"),
+            cancellable = true
+    )
+    private void elysium_api$soundTransformer(BlockState state, CallbackInfoReturnable<SoundType> cir) {
+        RegistryAccessHelper.getServer()
+                .flatMap(access -> access.registryOrThrow(ElysiumRegistries.Keys.BLOCK_SOUND_TRANSFORMERS).stream()
+                        .filter(s -> s.blocks().contains(state.getBlockHolder()))
+                        .findFirst())
+                .ifPresent(transformer -> cir.setReturnValue(transformer.toSoundType()));
     }
 }

@@ -2,6 +2,8 @@ package net.jadenxgamer.elysium_api.merge.block;
 
 import java.util.List;
 import net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock;
+import net.jadenxgamer.elysium_api.api.util.RegistryAccessHelper;
+import net.jadenxgamer.elysium_api.impl.registry.ElysiumRegistries;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Player;
@@ -10,6 +12,7 @@ import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
@@ -45,5 +48,18 @@ public abstract class BlockMixin20 implements IElysiumBlock {
     private void elysium$appendHoverText(ItemStack stack, @Nullable BlockGetter level, List<Component> tooltip, TooltipFlag flag, CallbackInfo ci) {
         this.elysiumAppendHoverText(stack, level, tooltip, flag);
         ci.cancel();
+    }
+
+    @Inject(
+            method = "getSoundType",
+            at = @At("HEAD"),
+            cancellable = true
+    )
+    private void elysium_api$soundTransformer(BlockState state, CallbackInfoReturnable<SoundType> cir) {
+        RegistryAccessHelper.getServer()
+                .flatMap(access -> access.registryOrThrow(ElysiumRegistries.Keys.BLOCK_SOUND_TRANSFORMERS).stream()
+                        .filter(s -> s.blocks().contains(state.getBlockHolder()))
+                        .findFirst())
+                .ifPresent(transformer -> cir.setReturnValue(transformer.toSoundType()));
     }
 }

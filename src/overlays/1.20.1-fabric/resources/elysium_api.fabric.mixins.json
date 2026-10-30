@@ -30,7 +30,9 @@
     "mechanics.SignalGetterFMixin",
     "mechanics.WalkNodeEvaluator20Mixin",
     "mechanics.WalkNodeEvaluatorMixin",
-    "player.MultiPlayerGameModeFMixin"
+    "player.MultiPlayerGameModeFMixin",
+    "registry.RegistryDataLoaderAccessorF20",
+    "registry.RegistryDataLoaderMixinF20"
   ],
   "client": [
     "client.LevelRendererFMixin",

@@ -5,6 +5,7 @@ package net.jadenxgamer.elysium_api;
 import net.jadenxgamer.elysium_api.impl.network.ElysiumNetworking;
 import net.jadenxgamer.elysium_api.impl.registry.ElysiumBlocks;
 import net.jadenxgamer.elysium_api.impl.registry.ElysiumItems;
+import net.jadenxgamer.elysium_api.impl.registry.ElysiumRegistries;
 import net.minecraft.resources.ResourceLocation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +18,7 @@ public class ElysiumAPI {
     public static final Logger LOGGER = LoggerFactory.getLogger("Elysium-API");
 
     public static void sharedSetup() {
+        ElysiumRegistries.init();
         ElysiumBlocks.init();
         ElysiumItems.init();
         ElysiumNetworking.init();
