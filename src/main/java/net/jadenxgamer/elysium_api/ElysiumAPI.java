@@ -36,4 +36,9 @@ public class ElysiumAPI {
         // return ResourceLocation.fromNamespaceAndPath(namespace, path); *p21
         return new ResourceLocation(namespace, path); // remove*p21
     }
+
+    public static ResourceLocation idParse(String id) {
+        // return ResourceLocation.parse(id); *p21
+        return new ResourceLocation(id); // remove*p21
+    }
 }

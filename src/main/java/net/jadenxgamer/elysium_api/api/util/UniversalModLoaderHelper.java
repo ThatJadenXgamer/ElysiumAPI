@@ -18,7 +18,7 @@ public final class UniversalModLoaderHelper {
         // return net.minecraftforge.fml.ModList.get().isLoaded(modId); *forge
         // return net.neoforged.fml.ModList.get().isLoaded(modId); *neoforge
 
-        return false; // remove*fabric && forge && neoforge
+        return false; // remove*fabric || forge || neoforge
     }
 
     /**
@@ -30,7 +30,7 @@ public final class UniversalModLoaderHelper {
         // return !net.minecraftforge.fml.loading.FMLEnvironment.production; *forge
         // return !net.neoforged.fml.loading.FMLEnvironment.production; *neoforge
 
-        return false; // remove*fabric && forge && neoforge
+        return false; // remove*fabric || forge || neoforge
     }
 
     /**

@@ -208,7 +208,7 @@ public final class PatchTransformer {
     }
 
     private static String joinIds(List<String> ids) {
-        return String.join(" && ", ids);
+        return String.join(" || ", ids);
     }
 
     private static boolean anyActive(List<String> ids, Set<String> activeIds) {
@@ -300,7 +300,7 @@ public final class PatchTransformer {
 
     private static List<String> parseIdList(String value) {
         if (value == null || value.isEmpty()) return null;
-        String[] parts = value.split("&&");
+        String[] parts = value.split("\\|\\|");
         if (parts.length == 0) return null;
         List<String> ids = new ArrayList<>(parts.length);
         for (String part : parts) {

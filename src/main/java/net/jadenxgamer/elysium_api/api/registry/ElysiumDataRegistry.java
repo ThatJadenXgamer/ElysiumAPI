@@ -181,6 +181,7 @@ public class ElysiumDataRegistry<T> {
         throw new UnsupportedOperationException("ElysiumDataRegistry.isNetworkable is not implemented on this platform");
     }
 
+    @ApiStatus.Internal
     protected void registerToLoader() {
         throw new UnsupportedOperationException("ElysiumDataRegistry.registerToLoader is not implemented on this platform");
     }

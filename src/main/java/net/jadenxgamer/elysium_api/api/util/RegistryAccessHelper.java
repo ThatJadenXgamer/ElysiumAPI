@@ -31,7 +31,7 @@ public final class RegistryAccessHelper {
      * @return optional containing the server registry access, or empty if no server is available
      */
     public static Optional<RegistryAccess> getServer() {
-        MinecraftServer server = null; // remove*fabric && forge && neoforge
+        MinecraftServer server = null; // remove*fabric || forge || neoforge
         // MinecraftServer server = elysium$currentServer; *fabric
         // MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer(); *forge
         // MinecraftServer server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer(); *neoforge
@@ -46,7 +46,7 @@ public final class RegistryAccessHelper {
      * @return optional containing the client registry access, or empty if not on client or not connected
      */
     public static Optional<RegistryAccess> getClient() {
-        boolean dedicatedServer = false; // remove*fabric && forge && neoforge
+        boolean dedicatedServer = false; // remove*fabric || forge || neoforge
         // boolean dedicatedServer = net.fabricmc.loader.api.FabricLoader.getInstance().getEnvironmentType() == net.fabricmc.api.EnvType.SERVER; *fabric
         // boolean dedicatedServer = net.minecraftforge.fml.loading.FMLEnvironment.dist == net.minecraftforge.api.distmarker.Dist.DEDICATED_SERVER; *forge
         // boolean dedicatedServer = net.neoforged.fml.loading.FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.DEDICATED_SERVER; *neoforge

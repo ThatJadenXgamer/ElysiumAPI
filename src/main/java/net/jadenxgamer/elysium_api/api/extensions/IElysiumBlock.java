@@ -211,7 +211,7 @@ public interface IElysiumBlock {
      * @param dropConsumer the consumer that receives this block's drops
      */
     default void elysiumOnExplosionHit(BlockState state, Level level, BlockPos pos, Explosion explosion, BiConsumer<ItemStack, BlockPos> dropConsumer) {
-        if (!state.isAir() && ElysiumExplosionHelper.elysiumGetBlockInteraction(explosion) != IElysiumExplosion.ElysiumBlockInteraction.TRIGGER_BLOCK) {
+        if (!state.isAir() && ElysiumExplosionHelper.getBlockInteraction(explosion) != IElysiumExplosion.ElysiumBlockInteraction.TRIGGER_BLOCK) {
             Block block = state.getBlock();
             boolean flag = explosion.getIndirectSourceEntity() instanceof Player;
             if (((IElysiumBlock) block).elysiumCanDropFromExplosion(state, level, pos, explosion) && level instanceof ServerLevel serverlevel) {
@@ -221,8 +221,8 @@ public interface IElysiumBlock {
                         .withParameter(LootContextParams.TOOL, ItemStack.EMPTY)
                         .withOptionalParameter(LootContextParams.BLOCK_ENTITY, blockEntity)
                         .withOptionalParameter(LootContextParams.THIS_ENTITY, explosion.getDirectSourceEntity());
-                if (ElysiumExplosionHelper.elysiumGetBlockInteraction(explosion) == IElysiumExplosion.ElysiumBlockInteraction.DESTROY_WITH_DECAY) {
-                    builder.withParameter(LootContextParams.EXPLOSION_RADIUS, ElysiumExplosionHelper.elysiumGetRadius(explosion));
+                if (ElysiumExplosionHelper.getBlockInteraction(explosion) == IElysiumExplosion.ElysiumBlockInteraction.DESTROY_WITH_DECAY) {
+                    builder.withParameter(LootContextParams.EXPLOSION_RADIUS, ElysiumExplosionHelper.getRadius(explosion));
                 }
                 state.spawnAfterBreak(serverlevel, pos, ItemStack.EMPTY, flag);
                 state.getDrops(builder).forEach(stack -> dropConsumer.accept(stack, pos));

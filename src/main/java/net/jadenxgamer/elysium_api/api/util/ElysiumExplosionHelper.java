@@ -22,7 +22,7 @@ public final class ElysiumExplosionHelper {
      * @param explosion the explosion being queried
      * @return the block interaction mode of the explosion
      */
-    public static IElysiumExplosion.ElysiumBlockInteraction elysiumGetBlockInteraction(Explosion explosion) {
+    public static IElysiumExplosion.ElysiumBlockInteraction getBlockInteraction(Explosion explosion) {
         return ((IElysiumExplosion) explosion).elysiumGetBlockInteraction();
     }
 
@@ -32,7 +32,7 @@ public final class ElysiumExplosionHelper {
      * @param explosion the explosion being queried
      * @return the radius of the explosion
      */
-    public static float elysiumGetRadius(Explosion explosion) {
+    public static float getRadius(Explosion explosion) {
         return ((IElysiumExplosion) explosion).elysiumGetRadius();
     }
 }
