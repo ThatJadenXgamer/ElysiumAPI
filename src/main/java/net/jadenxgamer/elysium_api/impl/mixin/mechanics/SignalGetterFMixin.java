@@ -1,7 +1,7 @@
 // asphodel::eject -> loader=forge
 package net.jadenxgamer.elysium_api.impl.mixin.mechanics;
 
-import net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock;
+import net.jadenxgamer.elysium_api.api.core.extensions.IElysiumBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.BlockGetter;

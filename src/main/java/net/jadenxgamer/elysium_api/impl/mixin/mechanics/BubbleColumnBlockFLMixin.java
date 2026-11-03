@@ -1,7 +1,7 @@
 package net.jadenxgamer.elysium_api.impl.mixin.mechanics;
 
-import net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock;
-import net.jadenxgamer.elysium_api.api.extensions.enums.ElysiumBubbleColumnDirection;
+import net.jadenxgamer.elysium_api.api.core.extensions.IElysiumBlock;
+import net.jadenxgamer.elysium_api.api.core.extensions.enums.ElysiumBubbleColumnDirection;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Blocks;

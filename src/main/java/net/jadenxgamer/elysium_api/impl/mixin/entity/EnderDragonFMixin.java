@@ -1,7 +1,7 @@
 package net.jadenxgamer.elysium_api.impl.mixin.entity;
 
 import com.llamalad7.mixinextras.sugar.Local;
-import net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock;
+import net.jadenxgamer.elysium_api.api.core.extensions.IElysiumBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.TagKey;

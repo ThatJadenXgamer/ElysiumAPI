@@ -18,12 +18,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * A mod loader agnostic way to add your own data-driven registries.
  * <p>
- * A data-driven registry, sometimes called a datapack registry, is a registry
- * whose entries are loaded from JSON files inside datapacks rather than being
- * created in code. This is how the base game handles things like biomes,
- * dimensions, damage types and enchantments, and it is a great fit for any
- * features that server operators, modpack creators or frankly anyone looking to tweak or
- * add additional content onto your mod's infrastructure in an accessible way.
+ * A data-driven registry or datapack registry, has it's entries loaded through JSON files within datapacks.
+ * Recommended method for anyone looking to tweak or add content onto a mod's infrastructure, in an accessible way.
  * <p>
  * The way it works is exactly the same idea as the datapack registry support
  * that Forge and NeoForge provide. You hand over a {@code Codec} that knows how

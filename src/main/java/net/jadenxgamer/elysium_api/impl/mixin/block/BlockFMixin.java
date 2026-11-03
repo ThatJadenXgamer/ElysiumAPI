@@ -1,15 +1,13 @@
 package net.jadenxgamer.elysium_api.impl.mixin.block;
 
-import net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock;
+import net.jadenxgamer.elysium_api.api.core.extensions.IElysiumBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.BeaconBeamBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;

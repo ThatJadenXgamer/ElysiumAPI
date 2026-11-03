@@ -1,7 +1,7 @@
 package net.jadenxgamer.elysium_api.merge.block;
 
 import java.util.List;
-import net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock;
+import net.jadenxgamer.elysium_api.api.core.extensions.IElysiumBlock;
 import net.jadenxgamer.elysium_api.impl.util.IElysiumTooltipContext;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;

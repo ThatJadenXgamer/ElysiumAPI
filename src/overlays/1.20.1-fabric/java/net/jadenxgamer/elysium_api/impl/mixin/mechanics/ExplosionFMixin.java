@@ -1,7 +1,7 @@
 package net.jadenxgamer.elysium_api.impl.mixin.mechanics;
 
 import com.llamalad7.mixinextras.sugar.Local;
-import net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock;
+import net.jadenxgamer.elysium_api.api.core.extensions.IElysiumBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.Level;

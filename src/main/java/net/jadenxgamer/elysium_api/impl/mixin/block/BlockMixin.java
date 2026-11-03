@@ -2,7 +2,7 @@
 // asphodel::merge -> version=1.21.1 -> net.jadenxgamer.elysium_api.merge.block.BlockMixin21
 package net.jadenxgamer.elysium_api.impl.mixin.block;
 
-import net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock;
+import net.jadenxgamer.elysium_api.api.core.extensions.IElysiumBlock;
 import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.level.block.BeaconBeamBlock;
 import net.minecraft.world.level.block.Block;

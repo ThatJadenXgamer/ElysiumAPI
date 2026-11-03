@@ -1,5 +1,7 @@
 package net.jadenxgamer.elysium_api.api.unification;
 
+import net.jadenxgamer.elysium_api.api.core.extensions.IElysiumBlock;
+
 /**
  * A cross-loader and cross-version extension interface for {@link net.minecraft.world.level.Explosion}
  * that exposes version-agnostic access to the block interaction mode and
@@ -9,7 +11,7 @@ package net.jadenxgamer.elysium_api.api.unification;
  * private and has no {@code TRIGGER_BLOCK} interaction mode at all.
  * <p>
  * This interface flattens those differences so downstream code, particularly
- * {@link net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock}'s unified
+ * {@link IElysiumBlock}'s unified
  * explosion pipeline, can read either value without version-specific
  * branching. The block interaction is surfaced through the nested
  * {@link ElysiumBlockInteraction} enum so callers never reference

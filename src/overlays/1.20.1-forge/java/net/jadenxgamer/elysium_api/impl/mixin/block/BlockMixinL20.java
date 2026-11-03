@@ -1,6 +1,6 @@
 package net.jadenxgamer.elysium_api.impl.mixin.block;
 
-import net.jadenxgamer.elysium_api.api.extensions.IElysiumBlock;
+import net.jadenxgamer.elysium_api.api.core.extensions.IElysiumBlock;
 import net.jadenxgamer.elysium_api.api.unification.ElysiumPathType;
 import net.jadenxgamer.elysium_api.api.unification.ElysiumPathTypes;
 import net.minecraft.core.BlockPos;

@@ -1,6 +1,6 @@
 package net.jadenxgamer.elysium_api.merge.block;
 
-import net.jadenxgamer.elysium_api.api.block.ElysiumBlockProperties;
+import net.jadenxgamer.elysium_api.api.core.block.ElysiumBlockProperties;
 import net.jadenxgamer.elysium_api.api.registry.ElysiumRegHolder;
 import net.jadenxgamer.elysium_api.impl.mixin.block.BlockBehaviourAccessor;
 import net.jadenxgamer.elysium_api.impl.mixin.block.BlockPropertiesAccessor;

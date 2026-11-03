@@ -1,5 +1,7 @@
 package net.jadenxgamer.elysium_api.api.util;
 
+import java.nio.file.Path;
+
 public final class UniversalModLoaderHelper {
 
     // asphodel::patch -> loader=fabric, id=fabric
@@ -39,5 +41,17 @@ public final class UniversalModLoaderHelper {
      */
     public static boolean isProductionEnvironment() {
         return !isDevelopmentEnvironment();
+    }
+
+    /**
+     * A common-side way to obtain the game's config directory <code>(""&lt;instanceDir&gt;"/config/")</code> that works across Fabric, Forge and NeoForge.
+     * @return the absolute path to the config directory, which the loader guarantees exists on disk.
+     */
+    public static Path getConfigDirectory() {
+        // return net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir(); *fabric
+        // return net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get(); *forge
+        // return net.neoforged.fml.loading.FMLPaths.CONFIGDIR.get(); *neoforge
+
+        throw new UnsupportedOperationException("Elysium config directory requested without a mod loader present"); // remove*fabric || forge || neoforge
     }
 }
