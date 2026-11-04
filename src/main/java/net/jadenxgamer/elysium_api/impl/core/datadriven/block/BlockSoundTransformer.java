@@ -1,4 +1,4 @@
-package net.jadenxgamer.elysium_api.mod.core.datadriven.block;
+package net.jadenxgamer.elysium_api.impl.core.datadriven.block;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;

@@ -3,6 +3,8 @@
 package net.jadenxgamer.elysium_api;
 
 import net.jadenxgamer.elysium_api.api.config.ElysiumConfigManager;
+import net.jadenxgamer.elysium_api.impl.client.assetdriven.fog_settings.FogSettingsManager;
+import net.jadenxgamer.elysium_api.impl.client.assetdriven.lightmap_settings.LightmapSettingsManager;
 import net.jadenxgamer.elysium_api.mod.config.ElysiumConfig;
 import net.jadenxgamer.elysium_api.mod.network.ElysiumNetworking;
 import net.jadenxgamer.elysium_api.mod.registry.ElysiumBlocks;
@@ -17,7 +19,9 @@ public class ElysiumAPI {
     // asphodel::patch -> loader=*, version=1.21.1, id=p21
 
     public static final String MOD_ID = "elysium_api";
-    public static final Logger LOGGER = LoggerFactory.getLogger("Elysium-API");
+    public static final Logger LOGGER = LoggerFactory.getLogger("Elysium API");
+    public static final FogSettingsManager FOG_SETTINGS = new FogSettingsManager();
+    public static final LightmapSettingsManager LIGHTMAP_SETTINGS = new LightmapSettingsManager();
 
     public static void sharedSetup() {
         ElysiumConfigManager.register(MOD_ID, ElysiumConfig.class);

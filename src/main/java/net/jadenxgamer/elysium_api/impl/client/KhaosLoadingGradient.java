@@ -18,7 +18,7 @@ import java.util.List;
 public final class KhaosLoadingGradient {
 
     private static final float GRADIENT_FADE_IN_MILLIS = 1250.0F;
-    private static final int GRADIENT_COLOR = 0x9100BA;
+    private static final int GRADIENT_COLOR = 0x5D009D;
     private static final int GRADIENT_HEIGHT_NUMERATOR = 2;
     private static final int GRADIENT_HEIGHT_DENOMINATOR = 5;
 

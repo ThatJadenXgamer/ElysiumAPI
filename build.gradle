@@ -42,6 +42,9 @@ allprojects { proj ->
             }
         }
     }
+    proj.plugins.withId('asphodel-loader') {
+        proj.apply from: rootProject.file('charon.gradle')
+    }
 }
 
 apply plugin: 'idea'

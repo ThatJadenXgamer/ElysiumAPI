@@ -5,7 +5,7 @@
 ### What is this?
 
 Hello, hello! If you're reading this then it probably means you want to contribute to **Elysium API**, 
-if that's the case then this document will catch you up to speed on our various domain-specific syntax conventions.
+if that's the case then this document will catch you up to speed on our various domain-specific conventions.
 So that anything you end up making adheres to our pre-existing codebase.
 
 ![linebreak](https://cdn.modrinth.com/data/cached_images/6a7b4189d580191e8b7254ac5fb37e054f654d9f.png)
@@ -31,7 +31,7 @@ Then we declare the loader denominators as following:
 
 ###### *(example: `CustomBlockF.java` or `CustomBlockL.java`)*
 
-Of course, it goes without saying but in-case of implementations that are exclusive to a certain versions and/or loaders then
+Of course, it goes without saying but in-case of implementations that are exclusive to multiple versions and/or loaders then
 you can mix and match them in a way that is descriptive of where it's used (i.e. `CustomBlock20F.java` or `CustomBlockFL.java`)
 
 ![linebreak](https://cdn.modrinth.com/data/cached_images/6a7b4189d580191e8b7254ac5fb37e054f654d9f.png)

@@ -151,6 +151,9 @@ project.afterEvaluate {
             dependencies {
                 compileOnly sharedRootProject
             }
+            tasks.named('compileJava', JavaCompile) {
+                dependsOn "${sharedRootProject.path}:processResources"
+            }
         }
 
         if (loader != 'vanilla') {
@@ -159,6 +162,9 @@ project.afterEvaluate {
             if (versionVanillaProject != null && versionVanillaProject != project) {
                 dependencies {
                     compileOnly versionVanillaProject
+                }
+                tasks.named('compileJava', JavaCompile) {
+                    dependsOn "${versionVanillaProject.path}:processResources"
                 }
             }
         }

@@ -1,0 +1,92 @@
+def charonBootstrapDir = layout.buildDirectory.dir('charon-bootstrap')
+
+def charonBootstrap = tasks.register('charonBootstrap', JavaCompile) {
+    dependsOn tasks.named('assembleSources')
+    source = project.fileTree(project.layout.buildDirectory.dir('generated/assembled/java')).matching {
+        include 'net/jadenxgamer/elysium_api/api/charon/**'
+        include 'net/jadenxgamer/elysium_api/processor/**'
+    }
+    classpath = project.files()
+    destinationDirectory = charonBootstrapDir
+    options.encoding = 'UTF-8'
+    options.release = 17
+    doFirst {
+        project.delete(charonBootstrapDir.get().asFile)
+    }
+}
+
+def charonServices = tasks.register('charonServices', Copy) {
+    dependsOn charonBootstrap, tasks.named('assembleSources')
+    from project.layout.buildDirectory.dir('generated/assembled/resources/META-INF/services')
+    include 'javax.annotation.processing.Processor'
+    into charonBootstrapDir.map { it.dir('META-INF/services') }
+}
+
+tasks.named('compileJava', JavaCompile) {
+    dependsOn charonServices
+    project.dependencies.add('annotationProcessor', project.files(charonBootstrapDir))
+}
+
+plugins.withId('org.spongepowered.mixin') {
+    mixin {
+        config("${project.mod_id}.charon.mixins.json")
+    }
+}
+
+def charonMeta = tasks.register('charonMeta') {
+    dependsOn tasks.named('compileJava'), tasks.named('processResources')
+    outputs.upToDateWhen { false }
+
+    doLast {
+        File classesDir = tasks.named('compileJava').get().destinationDirectory.get().asFile
+        List<String> charonConfigs = project.fileTree(classesDir)
+                .matching { include '*.charon.mixins.json' }
+                .files.collect { it.name }.sort()
+        if (charonConfigs.isEmpty()) return
+
+        String loader = project.ext.has('asphodelLoader') ? project.ext.asphodelLoader : null
+
+        if (loader == 'fabric') {
+            File modJson = new File(classesDir, 'fabric.mod.json')
+            if (modJson.exists()) {
+                def json = new groovy.json.JsonSlurper().parseText(modJson.text)
+                List<String> current = json.mixins ? json.mixins.collect { it as String } : []
+                List<String> toAdd = charonConfigs.findAll { !current.contains(it) }
+                if (!toAdd.isEmpty()) {
+                    json.mixins = current + toAdd
+                    modJson.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(json)) + '\n'
+                }
+            }
+        } else if (loader == 'neoforge') {
+            File modToml = new File(classesDir, 'META-INF/neoforge.mods.toml')
+            if (modToml.exists()) {
+                String text = modToml.text
+                List<String> toAdd = charonConfigs.findAll { !text.contains("config = \"${it}\"") }
+                if (!toAdd.isEmpty()) {
+                    StringBuilder builder = new StringBuilder(text)
+                    for (String config : toAdd) builder.append("\n[[mixins]]\nconfig = \"").append(config).append("\"\n")
+                    modToml.text = builder.toString()
+                }
+            }
+        }
+    }
+}
+
+tasks.named('classes') { dependsOn charonMeta }
+
+tasks.named('jar', Jar) {
+    doFirst {
+        String loader = project.ext.has('asphodelLoader') ? project.ext.asphodelLoader : null
+        if (loader != 'forge') return
+
+        File classesDir = tasks.named('compileJava').get().destinationDirectory.get().asFile
+        List<String> charonConfigs = project.fileTree(classesDir)
+                .matching { include '*.charon.mixins.json' }
+                .files.collect { it.name }
+        if (charonConfigs.isEmpty()) return
+
+        String existing = manifest.attributes.get('MixinConfigs') ?: ''
+        List<String> combined = (existing.isEmpty() ? [] : existing.tokenize(',')) + charonConfigs
+        manifest.attributes.put('MixinConfigs', combined.unique().join(','))
+    }
+}

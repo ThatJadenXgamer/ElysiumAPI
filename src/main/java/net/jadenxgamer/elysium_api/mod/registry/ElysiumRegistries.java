@@ -2,7 +2,8 @@ package net.jadenxgamer.elysium_api.mod.registry;
 
 import net.jadenxgamer.elysium_api.ElysiumAPI;
 import net.jadenxgamer.elysium_api.api.registry.ElysiumDataRegistry;
-import net.jadenxgamer.elysium_api.mod.core.datadriven.block.BlockSoundTransformer;
+import net.jadenxgamer.elysium_api.impl.core.datadriven.block.BlockSoundTransformer;
+import net.jadenxgamer.elysium_api.impl.core.datadriven.block.use_behaviors.UseBehavior;
 import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceKey;
 
@@ -13,6 +14,7 @@ public class ElysiumRegistries {
     }
 
     private static void datapackInit() {
+        ElysiumDataRegistry.create(Keys.USE_BEHAVIORS, UseBehavior.CODEC);
         ElysiumDataRegistry.create(Keys.BLOCK_SOUND_TRANSFORMERS, BlockSoundTransformer.CODEC);
     }
 
@@ -24,6 +26,7 @@ public class ElysiumRegistries {
         // Elysium Registries (currently nothing)
 
         // Data-Driven Registries
+        public static final ResourceKey<Registry<UseBehavior>> USE_BEHAVIORS = key("block/use_behaviors");
         public static final ResourceKey<Registry<BlockSoundTransformer>> BLOCK_SOUND_TRANSFORMERS = key("block/sound_transformers");
     }
 }
