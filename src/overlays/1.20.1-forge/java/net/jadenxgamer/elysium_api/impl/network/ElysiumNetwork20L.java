@@ -48,7 +48,7 @@ public final class ElysiumNetwork20L implements ElysiumNetworkBackend {
     private ElysiumNetwork20L() {
     }
 
-    public static void init() {
+    public static void installBackend() {
         ElysiumNetwork.installBackend(INSTANCE);
     }
 

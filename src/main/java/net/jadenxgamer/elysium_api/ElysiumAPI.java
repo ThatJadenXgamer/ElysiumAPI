@@ -8,6 +8,7 @@ import net.jadenxgamer.elysium_api.impl.client.assetdriven.lightmap_settings.Lig
 import net.jadenxgamer.elysium_api.mod.config.ElysiumConfig;
 import net.jadenxgamer.elysium_api.mod.network.ElysiumNetworking;
 import net.jadenxgamer.elysium_api.mod.registry.ElysiumBlocks;
+import net.jadenxgamer.elysium_api.mod.registry.ElysiumData;
 import net.jadenxgamer.elysium_api.mod.registry.ElysiumItems;
 import net.jadenxgamer.elysium_api.mod.registry.ElysiumRegistries;
 import net.minecraft.resources.ResourceLocation;
@@ -26,6 +27,7 @@ public class ElysiumAPI {
     public static void sharedSetup() {
         ElysiumConfigManager.register(MOD_ID, ElysiumConfig.class);
 
+        ElysiumData.init();
         ElysiumRegistries.init();
         ElysiumBlocks.init();
         ElysiumItems.init();

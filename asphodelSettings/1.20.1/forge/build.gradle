@@ -58,6 +58,7 @@ mixin {
     config("${project.mod_id}.20.mixins.json")
     config("${project.mod_id}.forge.mixins.json")
 }
+
 jar {
     manifest {
         attributes["MixinConfigs"] = "${project.mod_id}.mixins.json"
@@ -67,7 +68,12 @@ jar {
 dependencies {
     minecraft "net.minecraftforge:forge:${project.property('mc_1_20_1')}-${project.property('forge_1_20_1')}"
     annotationProcessor "org.spongepowered:mixin:0.8.5-SNAPSHOT:processor"
-    compileOnly(annotationProcessor("io.github.llamalad7:mixinextras-common:0.5.5"))
+
+    compileOnly(annotationProcessor("io.github.llamalad7:mixinextras-common:0.4.1"))
+    implementation(jarJar("io.github.llamalad7:mixinextras-forge:0.4.1")) {
+        jarJar.ranged(it, "[0.4.1,)")
+    }
+
     implementation('net.sf.jopt-simple:jopt-simple:5.0.4') { version { strictly '5.0.4' } }
 }
 

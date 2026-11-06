@@ -45,7 +45,7 @@ public final class ElysiumNetwork21N implements ElysiumNetworkBackend {
     private ElysiumNetwork21N() {
     }
 
-    public static void init(IEventBus modBus) {
+    public static void installBackend(IEventBus modBus) {
         ElysiumNetwork.installBackend(INSTANCE);
         modBus.addListener(ElysiumNetwork21N::onRegisterPayloadHandlers);
     }

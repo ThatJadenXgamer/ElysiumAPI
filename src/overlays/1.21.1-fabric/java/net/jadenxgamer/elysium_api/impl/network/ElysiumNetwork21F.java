@@ -49,7 +49,7 @@ public final class ElysiumNetwork21F implements ElysiumNetworkBackend {
     private ElysiumNetwork21F() {
     }
 
-    public static void init() {
+    public static void installBackend() {
         ElysiumNetwork.installBackend(INSTANCE);
         ServerLifecycleEvents.SERVER_STARTING.register(server -> INSTANCE.currentServer = server);
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> INSTANCE.currentServer = null);

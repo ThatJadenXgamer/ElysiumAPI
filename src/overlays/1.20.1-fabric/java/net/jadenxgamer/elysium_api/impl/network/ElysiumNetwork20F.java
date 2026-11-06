@@ -45,7 +45,7 @@ public final class ElysiumNetwork20F implements ElysiumNetworkBackend {
     private ElysiumNetwork20F() {
     }
 
-    public static void init() {
+    public static void installBackend() {
         ElysiumNetwork.installBackend(INSTANCE);
         ServerLifecycleEvents.SERVER_STARTING.register(server -> INSTANCE.currentServer = server);
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> INSTANCE.currentServer = null);

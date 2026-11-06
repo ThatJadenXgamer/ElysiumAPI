@@ -154,7 +154,7 @@ public final class ElysiumNetwork {
     }
 
     private static ElysiumNetworkBackend requireBackend() {
-        if (backend == null) throw new IllegalStateException("Elysium networking backend has not been installed. A loader adapter should have called ElysiumNetwork.installBackend during mod initialization, before any other mod invokes ElysiumNetwork.register or any ElysiumNetwork.send* method.");
+        if (backend == null) throw new IllegalStateException("Elysium networking backend has not been installed. A loader adapter has seemingly failed to install a backend on the Elysium API entrypoint.");
         return backend;
     }
 }

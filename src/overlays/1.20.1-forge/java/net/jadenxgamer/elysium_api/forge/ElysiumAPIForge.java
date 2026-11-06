@@ -3,6 +3,7 @@ package net.jadenxgamer.elysium_api.forge;
 import net.jadenxgamer.elysium_api.ElysiumAPI;
 import net.jadenxgamer.elysium_api.api.config.ElysiumConfigManager;
 import net.jadenxgamer.elysium_api.api.registry.ElysiumRegistry;
+import net.jadenxgamer.elysium_api.impl.core.attachment.ElysiumAttachmentBackendL20;
 import net.jadenxgamer.elysium_api.impl.network.ElysiumNetwork20L;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
@@ -17,8 +18,11 @@ import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 public class ElysiumAPIForge {
 
     public ElysiumAPIForge(FMLJavaModLoadingContext context) {
-        ElysiumNetwork20L.init();
+        ElysiumNetwork20L.installBackend();
+
+        ElysiumAttachmentBackendL20.installBackend(context.getModEventBus());
         ElysiumRegistry.setEventBus(ElysiumAPI.MOD_ID, context.getModEventBus());
+
         ElysiumAPI.sharedSetup();
         ElysiumAPI.setup20();
 

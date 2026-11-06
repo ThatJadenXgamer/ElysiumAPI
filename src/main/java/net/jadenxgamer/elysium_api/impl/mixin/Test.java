@@ -1,7 +1,10 @@
 package net.jadenxgamer.elysium_api.impl.mixin;
 
+import net.jadenxgamer.elysium_api.ElysiumAPI;
+import net.jadenxgamer.elysium_api.api.core.attachment.ElysiumAttachments;
 import net.jadenxgamer.elysium_api.api.core.extensions.IElysiumBlock;
 import net.jadenxgamer.elysium_api.mod.config.ElysiumConfig;
+import net.jadenxgamer.elysium_api.mod.registry.ElysiumData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.InteractionResult;
@@ -18,9 +21,12 @@ public class Test implements IElysiumBlock {
 
     @Override
     public InteractionResult elysiumUseWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hitResult) {
-        String side = level.isClientSide() ? "CLIENT" : "SERVER";
-        String value = String.valueOf(ElysiumConfig.SPONGE_RIGHT_CLICK_TEST.get());
-        player.sendSystemMessage(Component.literal("[" + side + "] sponge_right_click_test = " + value));
+        if (ElysiumAttachments.hasData(player, ElysiumData.MY_DATA)) {
+            String text = "Data Attachment is: " + ElysiumAttachments.getData(player, ElysiumData.MY_DATA);
+            player.displayClientMessage(Component.literal(text), true);
+        } else player.displayClientMessage(Component.literal("No Data Attachment"), true);
+
+        ElysiumAttachments.getData(player, ElysiumData.MY_DATA);
         return InteractionResult.SUCCESS;
     }
 }

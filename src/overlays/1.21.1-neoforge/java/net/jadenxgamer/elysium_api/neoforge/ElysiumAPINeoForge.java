@@ -3,6 +3,7 @@ package net.jadenxgamer.elysium_api.neoforge;
 import net.jadenxgamer.elysium_api.ElysiumAPI;
 import net.jadenxgamer.elysium_api.api.config.ElysiumConfigManager;
 import net.jadenxgamer.elysium_api.api.registry.ElysiumRegistry;
+import net.jadenxgamer.elysium_api.impl.core.attachment.ElysiumAttachmentBackendN21;
 import net.jadenxgamer.elysium_api.impl.network.ElysiumNetwork21N;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.IEventBus;
@@ -18,7 +19,10 @@ public class ElysiumAPINeoForge {
 
     public ElysiumAPINeoForge(IEventBus eventBus) {
         ElysiumRegistry.setEventBus(ElysiumAPI.MOD_ID, eventBus);
-        ElysiumNetwork21N.init(eventBus);
+
+        ElysiumNetwork21N.installBackend(eventBus);
+        ElysiumAttachmentBackendN21.installBackend(eventBus);
+
         ElysiumAPI.sharedSetup();
         ElysiumAPI.setup21();
 
