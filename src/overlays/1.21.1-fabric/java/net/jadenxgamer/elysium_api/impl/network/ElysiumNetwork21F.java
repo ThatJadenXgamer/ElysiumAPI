@@ -41,8 +41,8 @@ public final class ElysiumNetwork21F implements ElysiumNetworkBackend {
 
     private final Map<String, ElysiumNetworkRegistry> registries = new ConcurrentHashMap<>();
     private final Map<ResourceLocation, String> payloadToModId = new ConcurrentHashMap<>();
-    private final Map<ResourceLocation, CustomPacketPayload.Type<ElysiumPayloadWrapper>> c2sTypes = new ConcurrentHashMap<>();
-    private final Map<ResourceLocation, CustomPacketPayload.Type<ElysiumPayloadWrapper>> s2cTypes = new ConcurrentHashMap<>();
+    private final Map<ResourceLocation, CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper>> c2sTypes = new ConcurrentHashMap<>();
+    private final Map<ResourceLocation, CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper>> s2cTypes = new ConcurrentHashMap<>();
 
     private volatile MinecraftServer currentServer;
 
@@ -62,9 +62,9 @@ public final class ElysiumNetwork21F implements ElysiumNetworkBackend {
 
         for (ElysiumNetworkRegistry.Registration<?> registration : registry.clientToServerRegistrations()) {
             claimPayload(registration.type().id(), modId);
-            CustomPacketPayload.Type<ElysiumPayloadWrapper> type = new CustomPacketPayload.Type<>(registration.type().id());
+            CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper> type = new CustomPacketPayload.Type<>(registration.type().id());
             this.c2sTypes.put(registration.type().id(), type);
-            StreamCodec<? super FriendlyByteBuf, ElysiumPayloadWrapper> codec = wrapCodec(registration);
+            StreamCodec<? super FriendlyByteBuf, ElysiumStreamCodecBridge.ElysiumPayloadWrapper> codec = wrapCodec(registration);
             PayloadTypeRegistry.playC2S().register(type, codec);
             ServerPlayNetworking.registerGlobalReceiver(type, (wrapper, context) ->
                     handleReceive(modId, wrapper.payload(), new ServerContext(context.player())));
@@ -72,9 +72,9 @@ public final class ElysiumNetwork21F implements ElysiumNetworkBackend {
 
         for (ElysiumNetworkRegistry.Registration<?> registration : registry.serverToClientRegistrations()) {
             claimPayload(registration.type().id(), modId);
-            CustomPacketPayload.Type<ElysiumPayloadWrapper> type = new CustomPacketPayload.Type<>(registration.type().id());
+            CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper> type = new CustomPacketPayload.Type<>(registration.type().id());
             this.s2cTypes.put(registration.type().id(), type);
-            StreamCodec<? super FriendlyByteBuf, ElysiumPayloadWrapper> codec = wrapCodec(registration);
+            StreamCodec<? super FriendlyByteBuf, ElysiumStreamCodecBridge.ElysiumPayloadWrapper> codec = wrapCodec(registration);
             PayloadTypeRegistry.playS2C().register(type, codec);
             ClientPlayNetworking.registerGlobalReceiver(type, (wrapper, context) ->
                     handleReceive(modId, wrapper.payload(), new ClientContext()));
@@ -88,10 +88,10 @@ public final class ElysiumNetwork21F implements ElysiumNetworkBackend {
         }
     }
 
-    private static StreamCodec<? super FriendlyByteBuf, ElysiumPayloadWrapper> wrapCodec(ElysiumNetworkRegistry.Registration<?> registration) {
-        ElysiumStreamCodec<? super FriendlyByteBuf, ElysiumPayloadWrapper> codec = ElysiumStreamCodec.of(
+    private static StreamCodec<? super FriendlyByteBuf, ElysiumStreamCodecBridge.ElysiumPayloadWrapper> wrapCodec(ElysiumNetworkRegistry.Registration<?> registration) {
+        ElysiumStreamCodec<? super FriendlyByteBuf, ElysiumStreamCodecBridge.ElysiumPayloadWrapper> codec = ElysiumStreamCodec.of(
                 (buf, wrapper) -> encodePayloadUnchecked(registration.type(), buf, wrapper.payload()),
-                buf -> new ElysiumPayloadWrapper(decodeUnchecked(registration.type(), buf), new CustomPacketPayload.Type<>(registration.type().id()))
+                buf -> new ElysiumStreamCodecBridge.ElysiumPayloadWrapper(decodeUnchecked(registration.type(), buf), new CustomPacketPayload.Type<>(registration.type().id()))
         );
         return ElysiumStreamCodecBridge.toVanilla(codec);
     }
@@ -130,16 +130,16 @@ public final class ElysiumNetwork21F implements ElysiumNetworkBackend {
     @Override
     public void sendToServer(ElysiumPayload payload) {
         modIdForSend(payload, true);
-        CustomPacketPayload.Type<ElysiumPayloadWrapper> type = this.c2sTypes.get(payload.type().id());
-        ClientPlayNetworking.send(new ElysiumPayloadWrapper(payload, type));
+        CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper> type = this.c2sTypes.get(payload.type().id());
+        ClientPlayNetworking.send(new ElysiumStreamCodecBridge.ElysiumPayloadWrapper(payload, type));
     }
 
     @Override
     public void sendToPlayer(Player player, ElysiumPayload payload) {
         if (!(player instanceof ServerPlayer serverPlayer)) throw new IllegalArgumentException("sendToPlayer requires a ServerPlayer.");
         modIdForSend(payload, false);
-        CustomPacketPayload.Type<ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
-        ServerPlayNetworking.send(serverPlayer, new ElysiumPayloadWrapper(payload, type));
+        CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
+        ServerPlayNetworking.send(serverPlayer, new ElysiumStreamCodecBridge.ElysiumPayloadWrapper(payload, type));
     }
 
     @Override

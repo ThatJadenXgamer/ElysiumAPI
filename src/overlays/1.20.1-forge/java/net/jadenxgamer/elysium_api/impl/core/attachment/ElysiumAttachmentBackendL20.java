@@ -1,10 +1,15 @@
 package net.jadenxgamer.elysium_api.impl.core.attachment;
 
+import io.netty.buffer.Unpooled;
 import net.jadenxgamer.elysium_api.ElysiumAPI;
 import net.jadenxgamer.elysium_api.api.core.attachment.ElysiumAttachmentRegistry;
 import net.jadenxgamer.elysium_api.api.core.attachment.ElysiumAttachmentType;
 import net.jadenxgamer.elysium_api.api.core.attachment.ElysiumAttachments;
 import net.jadenxgamer.elysium_api.api.core.attachment.pipeline.ElysiumAttachmentBackend;
+import net.jadenxgamer.elysium_api.api.core.attachment.pipeline.ElysiumAttachmentSyncDispatcher;
+import net.jadenxgamer.elysium_api.api.network.pipeline.ElysiumStreamCodec;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -12,17 +17,25 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.common.capabilities.*;
+import net.minecraftforge.common.capabilities.Capability;
+import net.minecraftforge.common.capabilities.CapabilityManager;
+import net.minecraftforge.common.capabilities.CapabilityToken;
+import net.minecraftforge.common.capabilities.ICapabilityProvider;
+import net.minecraftforge.common.capabilities.RegisterCapabilitiesEvent;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.EntityLeaveLevelEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -36,12 +49,14 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
 
     private final Map<ResourceLocation, ElysiumAttachmentType<?>> types = new HashMap<>();
     private final Map<UUID, PendingCopy> pendingCopies = new ConcurrentHashMap<>();
+    private final Set<UUID> pendingSelfSync = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, Map<ResourceLocation, byte[]>> lastSent = new ConcurrentHashMap<>();
 
-    private ElysiumAttachmentBackendL20() {
-    }
+    private ElysiumAttachmentBackendL20() {}
 
     public static void installBackend(IEventBus modBus) {
         ElysiumAttachments.installBackend(INSTANCE);
+        ElysiumAttachmentSyncDispatcher.setClientApplier(INSTANCE::applyClientSync);
 
         modBus.addListener((RegisterCapabilitiesEvent event) -> event.register(IElysiumAttachmentHolder.class));
 
@@ -61,10 +76,28 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
             if (event.phase != TickEvent.Phase.END) return;
             if (!(event.player instanceof ServerPlayer sp)) return;
             INSTANCE.tryDeferredApply(sp);
+            INSTANCE.trySelfSync(sp);
         });
 
         MinecraftForge.EVENT_BUS.addListener((PlayerEvent.PlayerLoggedOutEvent event) -> {
-            INSTANCE.pendingCopies.remove(event.getEntity().getUUID());
+            UUID uuid = event.getEntity().getUUID();
+            INSTANCE.pendingCopies.remove(uuid);
+            INSTANCE.pendingSelfSync.remove(uuid);
+            INSTANCE.onPlayerDisconnect(uuid);
+        });
+
+        MinecraftForge.EVENT_BUS.addListener((PlayerEvent.PlayerLoggedInEvent event) -> {
+            if (!(event.getEntity() instanceof ServerPlayer player)) return;
+            INSTANCE.sendAllSyncedTypes(player, player);
+        });
+
+        MinecraftForge.EVENT_BUS.addListener((PlayerEvent.StartTracking event) -> {
+            if (!(event.getEntity() instanceof ServerPlayer player)) return;
+            INSTANCE.sendAllSyncedTypes(player, event.getTarget());
+        });
+
+        MinecraftForge.EVENT_BUS.addListener((EntityLeaveLevelEvent event) -> {
+            INSTANCE.lastSent.remove(event.getEntity().getUUID());
         });
     }
 
@@ -80,6 +113,7 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
         if (holder == null) return;
         INSTANCE.pendingCopies.remove(uuid);
         INSTANCE.applyStash(holder, pending);
+        INSTANCE.pendingSelfSync.add(uuid);
     }
 
     private void captureAttachments(Player player, boolean keepEverything) {
@@ -105,6 +139,14 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
         if (holder == null) return;
         this.pendingCopies.remove(uuid);
         this.applyStash(holder, pending);
+        this.pendingSelfSync.add(uuid);
+    }
+
+    private void trySelfSync(ServerPlayer player) {
+        UUID uuid = player.getUUID();
+        if (!this.pendingSelfSync.contains(uuid)) return;
+        this.pendingSelfSync.remove(uuid);
+        this.sendAllSyncedTypes(player, player);
     }
 
     @SuppressWarnings("unchecked")
@@ -143,9 +185,7 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
 
     private IElysiumAttachmentHolder requireHolder(Object holder) {
         IElysiumAttachmentHolder cap = this.resolveHolder(holder);
-        if (cap == null) {
-            return NoOpHolder.INSTANCE;
-        }
+        if (cap == null) return NoOpHolder.INSTANCE;
         return cap;
     }
 
@@ -170,6 +210,7 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
     @Override
     public <T> void setData(Entity holder, ElysiumAttachmentType<T> type, @Nullable T value) {
         this.requireHolder(holder).setData(type, value);
+        this.broadcastUpdate(holder, type, value);
     }
 
     @Override
@@ -214,6 +255,91 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
     public <T> void removeData(LevelChunk holder, ElysiumAttachmentType<T> type) {
         this.requireHolder(holder).setData(type, null);
         holder.setUnsaved(true);
+    }
+
+    private <T> void broadcastUpdate(Entity holder, ElysiumAttachmentType<T> type, @Nullable T value) {
+        if (value == null) return;
+        if (holder.level().isClientSide()) return;
+        if (!type.isSynced()) return;
+        byte[] data = this.encodeSyncData(type, value);
+        if (data == null) return;
+        if (!this.shouldBroadcast(holder, type, data)) return;
+        ElysiumAttachmentSyncDispatcher.sendToTrackingAndSelf(holder, type.id(), data);
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T> byte[] encodeSyncData(ElysiumAttachmentType<T> type, T value) {
+        ElysiumStreamCodec<? super FriendlyByteBuf, T> codec = (ElysiumStreamCodec<? super FriendlyByteBuf, T>) type.syncCodec();
+        if (codec == null) return null;
+        try {
+            FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
+            codec.encode(buf, value);
+            byte[] data = new byte[buf.readableBytes()];
+            buf.readBytes(data);
+            return data;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private boolean shouldBroadcast(Entity holder, ElysiumAttachmentType<?> type, byte[] data) {
+        Map<ResourceLocation, byte[]> perEntity = this.lastSent.computeIfAbsent(holder.getUUID(), k -> new ConcurrentHashMap<>());
+        byte[] last = perEntity.get(type.id());
+        if (last != null && Arrays.equals(last, data)) return false;
+        perEntity.put(type.id(), data);
+        return true;
+    }
+
+    private void sendAllSyncedTypes(ServerPlayer player, Entity entity) {
+        for (ElysiumAttachmentType<?> type : this.types.values()) {
+            if (!type.isSynced()) continue;
+            this.sendCurrentTo(player, entity, type);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T> void sendCurrentTo(ServerPlayer player, Entity entity, ElysiumAttachmentType<T> type) {
+        IElysiumAttachmentHolder holder = this.resolveHolder(entity);
+        if (holder == null) return;
+        T value = holder.getData(type);
+        if (value == null) return;
+        byte[] data = this.encodeSyncData(type, value);
+        if (data == null) return;
+        ElysiumAttachmentSyncDispatcher.sendToPlayer(player, entity, type.id(), data);
+    }
+
+    private void onPlayerDisconnect(UUID playerId) {
+        for (Set<UUID> set : this.pendingCopyPlayerSets()) set.remove(playerId);
+    }
+
+    private Set<Set<UUID>> pendingCopyPlayerSets() {
+        return new HashSet<>();
+    }
+
+    private void applyClientSync(int entityId, ResourceLocation attachmentId, byte[] data) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return;
+        Entity entity = mc.level.getEntity(entityId);
+        if (entity == null && mc.player != null && mc.player.getId() == entityId) {
+            entity = mc.player;
+        }
+        if (entity == null) return;
+        ElysiumAttachmentType<?> type = this.types.get(attachmentId);
+        if (type == null || !type.isSynced()) return;
+        this.decodeAndSet(entity, type, data);
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T> void decodeAndSet(Entity entity, ElysiumAttachmentType<T> type, byte[] data) {
+        ElysiumStreamCodec<? super FriendlyByteBuf, T> codec = (ElysiumStreamCodec<? super FriendlyByteBuf, T>) type.syncCodec();
+        if (codec == null) return;
+        try {
+            FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.wrappedBuffer(data));
+            T value = codec.decode(buf);
+            IElysiumAttachmentHolder holder = this.resolveHolder(entity);
+            if (holder != null) holder.setData(type, value);
+        } catch (Exception ignored) {
+        }
     }
 
     private record PendingCopy(Map<ResourceLocation, Object> data, boolean keepEverything) {

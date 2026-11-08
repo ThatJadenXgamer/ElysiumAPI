@@ -20,6 +20,7 @@ public abstract class TestPlayer {
     )
     private void tick(CallbackInfo ci) {
         Player player = (Player) (Object) this;
+        if (player.level().isClientSide) return;
         if (player.getBlockStateOn().is(Blocks.AMETHYST_BLOCK)) {
             ElysiumAttachments.setData(player, ElysiumData.MY_DATA, ElysiumAPI.idPath("minecraft", "amethyst_block"));
         } else if (player.getBlockStateOn().is(Blocks.STONE)) {

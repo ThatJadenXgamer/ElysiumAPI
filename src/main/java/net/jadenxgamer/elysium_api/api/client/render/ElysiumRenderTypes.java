@@ -1,6 +1,7 @@
 package net.jadenxgamer.elysium_api.api.client.render;
 
 import net.jadenxgamer.elysium_api.ElysiumAPI;
+import net.jadenxgamer.elysium_api.api.unification.ElysiumResourceLocation;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.Nullable;
@@ -31,6 +32,6 @@ public final class ElysiumRenderTypes {
 
     @Nullable
     public static ResourceLocation tryParseId(String id) {
-        try { return ElysiumAPI.idParse(id); } catch (Exception e) { return null; }
+        try { return ElysiumResourceLocation.parse(id); } catch (Exception e) { return null; }
     }
 }

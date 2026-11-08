@@ -5,6 +5,9 @@ import net.jadenxgamer.elysium_api.api.core.attachment.ElysiumAttachmentRegistry
 import net.jadenxgamer.elysium_api.api.core.attachment.ElysiumAttachmentType;
 import net.jadenxgamer.elysium_api.api.core.attachment.ElysiumAttachments;
 import net.jadenxgamer.elysium_api.api.core.attachment.pipeline.ElysiumAttachmentBackend;
+import net.jadenxgamer.elysium_api.api.network.pipeline.ElysiumStreamCodec;
+import net.jadenxgamer.elysium_api.impl.network.ElysiumStreamCodecBridge;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -26,8 +29,7 @@ public final class ElysiumAttachmentBackendN21 implements ElysiumAttachmentBacke
     private final Map<ResourceLocation, AttachmentType<?>> neoTypes = new HashMap<>();
     private IEventBus modBus;
 
-    private ElysiumAttachmentBackendN21() {
-    }
+    private ElysiumAttachmentBackendN21() {}
 
     public static void installBackend(IEventBus modBus) {
         INSTANCE.modBus = modBus;
@@ -36,9 +38,7 @@ public final class ElysiumAttachmentBackendN21 implements ElysiumAttachmentBacke
 
     @Override
     public void register(String modId, ElysiumAttachmentRegistry registry) {
-        if (this.deferredRegisters.containsKey(modId)) {
-            throw new IllegalStateException("Attachments have already been registered for mod id '" + modId + "'; ElysiumAttachments.register must be called exactly once per mod.");
-        }
+        if (this.deferredRegisters.containsKey(modId)) throw new IllegalStateException("Attachments have already been registered for mod id '" + modId + "'; ElysiumAttachments.register must be called exactly once per mod.");
         DeferredRegister<AttachmentType<?>> deferred = DeferredRegister.create(NeoForgeRegistries.ATTACHMENT_TYPES, modId);
         deferred.register(this.modBus);
         this.deferredRegisters.put(modId, deferred);
@@ -50,12 +50,17 @@ public final class ElysiumAttachmentBackendN21 implements ElysiumAttachmentBacke
     private <T> void registerType(DeferredRegister<AttachmentType<?>> deferred, ElysiumAttachmentType<T> type) {
         deferred.register(type.id().getPath(), () -> {
             AttachmentType.Builder<T> builder = AttachmentType.builder(type.defaultValue());
+
             if (type.isPersistent() && type.codec() != null) {
                 builder.serialize(type.codec());
                 if (type.isCopyOnDeath()) builder.copyOnDeath();
             } else if (type.isCopyOnDeath()) {
                 ElysiumAPI.LOGGER.warn("Attachment '{}' declares copyOnDeath but does not declare a codec; NeoForge requires serialization for copyOnDeath, so the flag is being ignored on this platform.", type.id());
             }
+
+            ElysiumStreamCodec<? super FriendlyByteBuf, T> syncCodec = type.syncCodec();
+            if (syncCodec != null) builder.sync(ElysiumStreamCodecBridge.toVanilla(syncCodec));
+
             AttachmentType<T> neoType = builder.build();
             this.neoTypes.put(type.id(), neoType);
             return neoType;

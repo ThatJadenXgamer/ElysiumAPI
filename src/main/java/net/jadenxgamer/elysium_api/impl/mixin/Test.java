@@ -21,6 +21,7 @@ public class Test implements IElysiumBlock {
 
     @Override
     public InteractionResult elysiumUseWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hitResult) {
+        if (!level.isClientSide) return InteractionResult.SUCCESS;
         if (ElysiumAttachments.hasData(player, ElysiumData.MY_DATA)) {
             String text = "Data Attachment is: " + ElysiumAttachments.getData(player, ElysiumData.MY_DATA);
             player.displayClientMessage(Component.literal(text), true);

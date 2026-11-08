@@ -1,8 +1,8 @@
-package net.jadenxgamer.elysium_api.impl.client.assetdriven.lightmap_settings;
+package net.jadenxgamer.elysium_api.impl.client.resourcedriven.lightmap_settings;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import net.jadenxgamer.elysium_api.impl.client.assetdriven.FogLightSettingsType;
+import net.jadenxgamer.elysium_api.impl.client.resourcedriven.FogLightSettingsType;
 import net.minecraft.resources.ResourceLocation;
 import org.joml.Vector3f;
 

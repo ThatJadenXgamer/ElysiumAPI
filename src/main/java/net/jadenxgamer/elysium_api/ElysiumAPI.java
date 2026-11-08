@@ -3,8 +3,9 @@
 package net.jadenxgamer.elysium_api;
 
 import net.jadenxgamer.elysium_api.api.config.ElysiumConfigManager;
-import net.jadenxgamer.elysium_api.impl.client.assetdriven.fog_settings.FogSettingsManager;
-import net.jadenxgamer.elysium_api.impl.client.assetdriven.lightmap_settings.LightmapSettingsManager;
+import net.jadenxgamer.elysium_api.api.unification.ElysiumResourceLocation;
+import net.jadenxgamer.elysium_api.impl.client.resourcedriven.fog_settings.FogSettingsManager;
+import net.jadenxgamer.elysium_api.impl.client.resourcedriven.lightmap_settings.LightmapSettingsManager;
 import net.jadenxgamer.elysium_api.mod.config.ElysiumConfig;
 import net.jadenxgamer.elysium_api.mod.network.ElysiumNetworking;
 import net.jadenxgamer.elysium_api.mod.registry.ElysiumBlocks;
@@ -38,17 +39,14 @@ public class ElysiumAPI {
     public static void setup21() {}
 
     public static ResourceLocation elysiumPath(String path) {
-        // return ResourceLocation.fromNamespaceAndPath(ElysiumAPI.MOD_ID, path); *p21
-        return new ResourceLocation(ElysiumAPI.MOD_ID, path); // remove*p21
+        return ElysiumResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+    }
+
+    public static ResourceLocation vanillaPath(String path) {
+        return ElysiumResourceLocation.withDefaultNamespace(path);
     }
 
     public static ResourceLocation idPath(String namespace, String path) {
-        // return ResourceLocation.fromNamespaceAndPath(namespace, path); *p21
-        return new ResourceLocation(namespace, path); // remove*p21
-    }
-
-    public static ResourceLocation idParse(String id) {
-        // return ResourceLocation.parse(id); *p21
-        return new ResourceLocation(id); // remove*p21
+        return ElysiumResourceLocation.fromNamespaceAndPath(namespace, path);
     }
 }

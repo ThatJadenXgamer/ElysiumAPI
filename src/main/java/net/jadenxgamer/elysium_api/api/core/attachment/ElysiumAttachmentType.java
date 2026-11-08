@@ -1,6 +1,8 @@
 package net.jadenxgamer.elysium_api.api.core.attachment;
 
 import com.mojang.serialization.Codec;
+import net.jadenxgamer.elysium_api.api.network.pipeline.ElysiumStreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -11,8 +13,9 @@ import java.util.function.Supplier;
  * The identity and configuration of a data attachment.
  * <p>
  * An attachment type pairs a namespaced {@link ResourceLocation} with a default value
- * supplier, and optionally declares a {@link Codec} for persistence and a
- * copy-on-death flag for player respawn. Instances are immutable and built through
+ * supplier, and optionally declares a {@link Codec} for persistence, a
+ * {@link ElysiumStreamCodec} for network sync, and a copy-on-death flag for
+ * player respawn. Instances are immutable and built through
  * {@link #builder(ResourceLocation, Supplier)}.
  * <p>
  * Two type instances with the same id are considered equal, so an attachment type
@@ -25,12 +28,14 @@ public final class ElysiumAttachmentType<T> {
     private final ResourceLocation id;
     private final Supplier<T> defaultValue;
     @Nullable private final Codec<T> codec;
+    @Nullable private final ElysiumStreamCodec<? super FriendlyByteBuf, T> syncCodec;
     private final boolean copyOnDeath;
 
-    private ElysiumAttachmentType(ResourceLocation id, Supplier<T> defaultValue, @Nullable Codec<T> codec, boolean copyOnDeath) {
+    private ElysiumAttachmentType(ResourceLocation id, Supplier<T> defaultValue, @Nullable Codec<T> codec, @Nullable ElysiumStreamCodec<? super FriendlyByteBuf, T> syncCodec, boolean copyOnDeath) {
         this.id = id;
         this.defaultValue = defaultValue;
         this.codec = codec;
+        this.syncCodec = syncCodec;
         this.copyOnDeath = copyOnDeath;
     }
 
@@ -76,6 +81,17 @@ public final class ElysiumAttachmentType<T> {
     }
 
     /**
+     * Returns the codec used to sync this attachment to clients, or null if
+     * this attachment is not synced.
+     *
+     * @return the sync codec, or null
+     */
+    @Nullable
+    public ElysiumStreamCodec<? super FriendlyByteBuf, T> syncCodec() {
+        return syncCodec;
+    }
+
+    /**
      * Returns whether this attachment has a codec and will therefore be
      * serialized to and from disk.
      *
@@ -83,6 +99,16 @@ public final class ElysiumAttachmentType<T> {
      */
     public boolean isPersistent() {
         return codec != null;
+    }
+
+    /**
+     * Returns whether this attachment has a sync codec and will therefore be
+     * sent to tracking clients whenever its value changes.
+     *
+     * @return true if a sync codec was provided
+     */
+    public boolean isSynced() {
+        return syncCodec != null;
     }
 
     /**
@@ -122,6 +148,7 @@ public final class ElysiumAttachmentType<T> {
         private final ResourceLocation id;
         private final Supplier<T> defaultValue;
         @Nullable private Codec<T> codec;
+        @Nullable private ElysiumStreamCodec<? super FriendlyByteBuf, T> syncCodec;
         private boolean copyOnDeath;
 
         private Builder(ResourceLocation id, Supplier<T> defaultValue) {
@@ -140,6 +167,30 @@ public final class ElysiumAttachmentType<T> {
          */
         public Builder<T> serialize(Codec<T> codec) {
             this.codec = codec;
+            return this;
+        }
+
+        /**
+         * Marks this attachment as synced to tracking clients using the given
+         * stream codec.
+         * <p>
+         * The value is sent to every player tracking the holder whenever it is
+         * set on the server, and to newly tracking players on their first send.
+         * This behaviour matches NeoForge's {@code AttachmentType.Builder#sync}
+         * and is emulated on Fabric and Forge via Elysium API's networking
+         * layer.
+         * <p>
+         * If this method is never called, the attachment stays server-only and
+         * client reads of it will always return the default value.
+         * <p>
+         * Sync and persistence are independent: a type may declare either,
+         * both, or neither.
+         *
+         * @param codec the stream codec used to serialize this attachment over the network
+         * @return this builder
+         */
+        public Builder<T> sync(ElysiumStreamCodec<? super FriendlyByteBuf, T> codec) {
+            this.syncCodec = codec;
             return this;
         }
 
@@ -163,7 +214,7 @@ public final class ElysiumAttachmentType<T> {
          * @return the attachment type
          */
         public ElysiumAttachmentType<T> build() {
-            return new ElysiumAttachmentType<>(this.id, this.defaultValue, this.codec, this.copyOnDeath);
+            return new ElysiumAttachmentType<>(this.id, this.defaultValue, this.codec, this.syncCodec, this.copyOnDeath);
         }
     }
 }

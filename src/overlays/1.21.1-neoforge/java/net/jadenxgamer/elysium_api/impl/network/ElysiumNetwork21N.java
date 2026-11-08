@@ -39,8 +39,8 @@ public final class ElysiumNetwork21N implements ElysiumNetworkBackend {
 
     private final Map<String, ElysiumNetworkRegistry> registries = new ConcurrentHashMap<>();
     private final Map<ResourceLocation, String> payloadToModId = new ConcurrentHashMap<>();
-    private final Map<ResourceLocation, CustomPacketPayload.Type<ElysiumPayloadWrapper>> c2sTypes = new ConcurrentHashMap<>();
-    private final Map<ResourceLocation, CustomPacketPayload.Type<ElysiumPayloadWrapper>> s2cTypes = new ConcurrentHashMap<>();
+    private final Map<ResourceLocation, CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper>> c2sTypes = new ConcurrentHashMap<>();
+    private final Map<ResourceLocation, CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper>> s2cTypes = new ConcurrentHashMap<>();
 
     private ElysiumNetwork21N() {
     }
@@ -62,9 +62,9 @@ public final class ElysiumNetwork21N implements ElysiumNetworkBackend {
 
     private static void registerC2S(PayloadRegistrar registrar, String modId, ElysiumNetworkRegistry.Registration<?> registration) {
         INSTANCE.claimPayload(registration.type().id(), modId);
-        CustomPacketPayload.Type<ElysiumPayloadWrapper> type = new CustomPacketPayload.Type<>(registration.type().id());
+        CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper> type = new CustomPacketPayload.Type<>(registration.type().id());
         INSTANCE.c2sTypes.put(registration.type().id(), type);
-        StreamCodec<? super FriendlyByteBuf, ElysiumPayloadWrapper> codec = wrapCodec(registration);
+        StreamCodec<? super FriendlyByteBuf, ElysiumStreamCodecBridge.ElysiumPayloadWrapper> codec = wrapCodec(registration);
         registrar.playToServer(type, codec, (wrapper, context) ->
                 context.enqueueWork(() -> {
                     Player player = context.player();
@@ -75,9 +75,9 @@ public final class ElysiumNetwork21N implements ElysiumNetworkBackend {
 
     private static void registerS2C(PayloadRegistrar registrar, String modId, ElysiumNetworkRegistry.Registration<?> registration) {
         INSTANCE.claimPayload(registration.type().id(), modId);
-        CustomPacketPayload.Type<ElysiumPayloadWrapper> type = new CustomPacketPayload.Type<>(registration.type().id());
+        CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper> type = new CustomPacketPayload.Type<>(registration.type().id());
         INSTANCE.s2cTypes.put(registration.type().id(), type);
-        StreamCodec<? super FriendlyByteBuf, ElysiumPayloadWrapper> codec = wrapCodec(registration);
+        StreamCodec<? super FriendlyByteBuf, ElysiumStreamCodecBridge.ElysiumPayloadWrapper> codec = wrapCodec(registration);
         registrar.playToClient(type, codec, (wrapper, context) ->
                 context.enqueueWork(() ->
                         INSTANCE.handleReceive(modId, wrapper.payload(), new ClientContext())));
@@ -96,10 +96,10 @@ public final class ElysiumNetwork21N implements ElysiumNetworkBackend {
         }
     }
 
-    private static StreamCodec<? super FriendlyByteBuf, ElysiumPayloadWrapper> wrapCodec(ElysiumNetworkRegistry.Registration<?> registration) {
-        ElysiumStreamCodec<? super FriendlyByteBuf, ElysiumPayloadWrapper> codec = ElysiumStreamCodec.of(
+    private static StreamCodec<? super FriendlyByteBuf, ElysiumStreamCodecBridge.ElysiumPayloadWrapper> wrapCodec(ElysiumNetworkRegistry.Registration<?> registration) {
+        ElysiumStreamCodec<? super FriendlyByteBuf, ElysiumStreamCodecBridge.ElysiumPayloadWrapper> codec = ElysiumStreamCodec.of(
                 (buf, wrapper) -> encodePayloadUnchecked(registration.type(), buf, wrapper.payload()),
-                buf -> new ElysiumPayloadWrapper(decodeUnchecked(registration.type(), buf), new CustomPacketPayload.Type<>(registration.type().id()))
+                buf -> new ElysiumStreamCodecBridge.ElysiumPayloadWrapper(decodeUnchecked(registration.type(), buf), new CustomPacketPayload.Type<>(registration.type().id()))
         );
         return ElysiumStreamCodecBridge.toVanilla(codec);
     }
@@ -138,44 +138,44 @@ public final class ElysiumNetwork21N implements ElysiumNetworkBackend {
     @Override
     public void sendToServer(ElysiumPayload payload) {
         modIdForSend(payload, true);
-        CustomPacketPayload.Type<ElysiumPayloadWrapper> type = this.c2sTypes.get(payload.type().id());
-        PacketDistributor.sendToServer(new ElysiumPayloadWrapper(payload, type));
+        CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper> type = this.c2sTypes.get(payload.type().id());
+        PacketDistributor.sendToServer(new ElysiumStreamCodecBridge.ElysiumPayloadWrapper(payload, type));
     }
 
     @Override
     public void sendToPlayer(Player player, ElysiumPayload payload) {
         if (!(player instanceof ServerPlayer serverPlayer)) throw new IllegalArgumentException("sendToPlayer requires a ServerPlayer.");
         modIdForSend(payload, false);
-        CustomPacketPayload.Type<ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
-        PacketDistributor.sendToPlayer(serverPlayer, new ElysiumPayloadWrapper(payload, type));
+        CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
+        PacketDistributor.sendToPlayer(serverPlayer, new ElysiumStreamCodecBridge.ElysiumPayloadWrapper(payload, type));
     }
 
     @Override
     public void sendToAllPlayers(ElysiumPayload payload) {
         modIdForSend(payload, false);
-        CustomPacketPayload.Type<ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
-        PacketDistributor.sendToAllPlayers(new ElysiumPayloadWrapper(payload, type));
+        CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
+        PacketDistributor.sendToAllPlayers(new ElysiumStreamCodecBridge.ElysiumPayloadWrapper(payload, type));
     }
 
     @Override
     public void sendToAllPlayersInLevel(ServerLevel level, ElysiumPayload payload) {
         modIdForSend(payload, false);
-        CustomPacketPayload.Type<ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
-        PacketDistributor.sendToPlayersInDimension(level, new ElysiumPayloadWrapper(payload, type));
+        CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
+        PacketDistributor.sendToPlayersInDimension(level, new ElysiumStreamCodecBridge.ElysiumPayloadWrapper(payload, type));
     }
 
     @Override
     public void sendToPlayersNear(ServerLevel level, Vec3 center, double radius, ElysiumPayload payload) {
         modIdForSend(payload, false);
-        CustomPacketPayload.Type<ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
-        PacketDistributor.sendToPlayersNear(level, null, center.x, center.y, center.z, radius, new ElysiumPayloadWrapper(payload, type));
+        CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
+        PacketDistributor.sendToPlayersNear(level, null, center.x, center.y, center.z, radius, new ElysiumStreamCodecBridge.ElysiumPayloadWrapper(payload, type));
     }
 
     @Override
     public void sendToPlayersTrackingChunk(ServerLevel level, ChunkPos chunkPos, ElysiumPayload payload) {
         modIdForSend(payload, false);
-        CustomPacketPayload.Type<ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
-        PacketDistributor.sendToPlayersTrackingChunk(level, chunkPos, new ElysiumPayloadWrapper(payload, type));
+        CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
+        PacketDistributor.sendToPlayersTrackingChunk(level, chunkPos, new ElysiumStreamCodecBridge.ElysiumPayloadWrapper(payload, type));
     }
 
     @Override
@@ -186,15 +186,15 @@ public final class ElysiumNetwork21N implements ElysiumNetworkBackend {
     @Override
     public void sendToPlayersTracking(Entity entity, ElysiumPayload payload) {
         modIdForSend(payload, false);
-        CustomPacketPayload.Type<ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
-        PacketDistributor.sendToPlayersTrackingEntity(entity, new ElysiumPayloadWrapper(payload, type));
+        CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
+        PacketDistributor.sendToPlayersTrackingEntity(entity, new ElysiumStreamCodecBridge.ElysiumPayloadWrapper(payload, type));
     }
 
     @Override
     public void sendToPlayersTrackingAndSelf(Entity entity, ElysiumPayload payload) {
         modIdForSend(payload, false);
-        CustomPacketPayload.Type<ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
-        PacketDistributor.sendToPlayersTrackingEntityAndSelf(entity, new ElysiumPayloadWrapper(payload, type));
+        CustomPacketPayload.Type<ElysiumStreamCodecBridge.ElysiumPayloadWrapper> type = this.s2cTypes.get(payload.type().id());
+        PacketDistributor.sendToPlayersTrackingEntityAndSelf(entity, new ElysiumStreamCodecBridge.ElysiumPayloadWrapper(payload, type));
     }
 
     @Override

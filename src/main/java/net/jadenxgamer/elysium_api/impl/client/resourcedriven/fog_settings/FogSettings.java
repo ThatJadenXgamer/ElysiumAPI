@@ -1,8 +1,8 @@
-package net.jadenxgamer.elysium_api.impl.client.assetdriven.fog_settings;
+package net.jadenxgamer.elysium_api.impl.client.resourcedriven.fog_settings;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import net.jadenxgamer.elysium_api.impl.client.assetdriven.FogLightSettingsType;
+import net.jadenxgamer.elysium_api.impl.client.resourcedriven.FogLightSettingsType;
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.Collections;

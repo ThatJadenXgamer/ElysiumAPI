@@ -1,9 +1,9 @@
-package net.jadenxgamer.elysium_api.impl.client.assetdriven;
+package net.jadenxgamer.elysium_api.impl.client.resourcedriven;
 
-import net.minecraft.util.StringRepresentable;
+import net.jadenxgamer.elysium_api.api.unification.ElysiumStringRepresentable;
 import org.jetbrains.annotations.NotNull;
 
-public enum FogLightSettingsType implements StringRepresentable {
+public enum FogLightSettingsType implements ElysiumStringRepresentable {
     GLOBAL("global"),
     BIOME("biome"),
     DIMENSION("dimension"),

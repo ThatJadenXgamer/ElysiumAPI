@@ -1,11 +1,10 @@
-package net.jadenxgamer.elysium_api.impl.client.assetdriven.fog_settings;
+package net.jadenxgamer.elysium_api.impl.client.resourcedriven.fog_settings;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import net.jadenxgamer.elysium_api.ElysiumAPI;
 import net.jadenxgamer.elysium_api.api.util.ClientTimerHelper;
-import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
