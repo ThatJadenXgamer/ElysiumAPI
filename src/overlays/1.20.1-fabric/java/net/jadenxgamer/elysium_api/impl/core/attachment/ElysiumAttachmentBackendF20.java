@@ -136,7 +136,9 @@ public final class ElysiumAttachmentBackendF20 implements ElysiumAttachmentBacke
 
     @Override
     public <T> void removeData(Entity holder, ElysiumAttachmentType<T> type) {
+        boolean had = holder.hasAttached(this.lookup(type));
         holder.setAttached(this.lookup(type), null);
+        if (had) this.broadcastRemoval(holder, type);
     }
 
     @Override
@@ -156,6 +158,14 @@ public final class ElysiumAttachmentBackendF20 implements ElysiumAttachmentBacke
         if (data == null) return;
         if (!this.shouldBroadcast(holder, type, data)) return;
         ElysiumAttachmentSyncDispatcher.sendToTrackingAndSelf(holder, type.id(), data);
+    }
+
+    private <T> void broadcastRemoval(Entity holder, ElysiumAttachmentType<T> type) {
+        if (holder.level().isClientSide()) return;
+        if (!type.isSynced()) return;
+        Map<ResourceLocation, byte[]> perEntity = this.lastSent.get(holder.getUUID());
+        if (perEntity != null) perEntity.remove(type.id());
+        ElysiumAttachmentSyncDispatcher.sendToTrackingAndSelf(holder, type.id(), null);
     }
 
     @SuppressWarnings("unchecked")
@@ -245,7 +255,7 @@ public final class ElysiumAttachmentBackendF20 implements ElysiumAttachmentBacke
         this.lastSent.remove(entity.getUUID());
     }
 
-    private void applyClientSync(int entityId, ResourceLocation attachmentId, byte[] data) {
+    private void applyClientSync(int entityId, ResourceLocation attachmentId, @Nullable byte[] data) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return;
         Entity entity = mc.level.getEntity(entityId);
@@ -256,7 +266,11 @@ public final class ElysiumAttachmentBackendF20 implements ElysiumAttachmentBacke
     }
 
     @SuppressWarnings("unchecked")
-    private <T> void decodeAndSet(Entity entity, ElysiumAttachmentType<T> type, byte[] data) {
+    private <T> void decodeAndSet(Entity entity, ElysiumAttachmentType<T> type, @Nullable byte[] data) {
+        if (data == null) {
+            entity.setAttached(this.lookup(type), null);
+            return;
+        }
         ElysiumStreamCodec<? super FriendlyByteBuf, T> codec = (ElysiumStreamCodec<? super FriendlyByteBuf, T>) type.syncCodec();
         if (codec == null) return;
         try {

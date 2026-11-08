@@ -242,7 +242,9 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
 
     @Override
     public <T> void removeData(Entity holder, ElysiumAttachmentType<T> type) {
+        boolean had = this.requireHolder(holder).hasData(type);
         this.requireHolder(holder).setData(type, null);
+        if (had) this.broadcastRemoval(holder, type);
     }
 
     @Override
@@ -267,9 +269,17 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
         ElysiumAttachmentSyncDispatcher.sendToTrackingAndSelf(holder, type.id(), data);
     }
 
+    private <T> void broadcastRemoval(Entity holder, ElysiumAttachmentType<T> type) {
+        if (holder.level().isClientSide()) return;
+        if (!type.isSynced()) return;
+        Map<ResourceLocation, byte[]> perEntity = this.lastSent.get(holder.getUUID());
+        if (perEntity != null) perEntity.remove(type.id());
+        ElysiumAttachmentSyncDispatcher.sendToTrackingAndSelf(holder, type.id(), null);
+    }
+
     @SuppressWarnings("unchecked")
     private <T> byte[] encodeSyncData(ElysiumAttachmentType<T> type, T value) {
-        ElysiumStreamCodec<? super FriendlyByteBuf, T> codec = (ElysiumStreamCodec<? super FriendlyByteBuf, T>) type.syncCodec();
+        ElysiumStreamCodec<? super FriendlyByteBuf, T> codec = type.syncCodec();
         if (codec == null) return null;
         try {
             FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
@@ -316,7 +326,7 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
         return new HashSet<>();
     }
 
-    private void applyClientSync(int entityId, ResourceLocation attachmentId, byte[] data) {
+    private void applyClientSync(int entityId, ResourceLocation attachmentId, @Nullable byte[] data) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return;
         Entity entity = mc.level.getEntity(entityId);
@@ -330,16 +340,20 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
     }
 
     @SuppressWarnings("unchecked")
-    private <T> void decodeAndSet(Entity entity, ElysiumAttachmentType<T> type, byte[] data) {
+    private <T> void decodeAndSet(Entity entity, ElysiumAttachmentType<T> type, @Nullable byte[] data) {
+        IElysiumAttachmentHolder holder = this.resolveHolder(entity);
+        if (holder == null) return;
+        if (data == null) {
+            holder.setData(type, null);
+            return;
+        }
         ElysiumStreamCodec<? super FriendlyByteBuf, T> codec = (ElysiumStreamCodec<? super FriendlyByteBuf, T>) type.syncCodec();
         if (codec == null) return;
         try {
             FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.wrappedBuffer(data));
             T value = codec.decode(buf);
-            IElysiumAttachmentHolder holder = this.resolveHolder(entity);
-            if (holder != null) holder.setData(type, value);
-        } catch (Exception ignored) {
-        }
+            holder.setData(type, value);
+        } catch (Exception ignored) {}
     }
 
     private record PendingCopy(Map<ResourceLocation, Object> data, boolean keepEverything) {
