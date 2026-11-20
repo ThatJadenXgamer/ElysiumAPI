@@ -6,6 +6,7 @@ import org.gradle.api.logging.Logger;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -13,6 +14,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public final class AccessAgentProcessor {
@@ -28,16 +30,17 @@ public final class AccessAgentProcessor {
     private static final String MERGED_ACCESS_TRANSFORMER_NAME = "merged.accesstransformer.cfg";
     private static final String VANILLA_LOADER = "vanilla";
     private static final String FABRIC_LOADER = "fabric";
+    private static final String QUILT_LOADER = "quilt";
     private static final String FORGE_LOADER = "forge";
     private static final String NEOFORGE_LOADER = "neoforge";
+    private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
 
-    private AccessAgentProcessor() {
-    }
+    private AccessAgentProcessor() {}
 
     public static void process(Path projectBasePath, String targetLoader, String targetVersion,
                                Path generatedAccessDirectory, Logger logger) {
-        boolean usesAccessWidener = targetLoader.equals(VANILLA_LOADER) || targetLoader.equals(FABRIC_LOADER);
-        boolean usesAccessTransformer = targetLoader.equals(FORGE_LOADER) || targetLoader.equals(NEOFORGE_LOADER);
+        boolean usesAccessWidener = VANILLA_LOADER.equals(targetLoader) || FABRIC_LOADER.equals(targetLoader) || QUILT_LOADER.equals(targetLoader);
+        boolean usesAccessTransformer = FORGE_LOADER.equals(targetLoader) || NEOFORGE_LOADER.equals(targetLoader);
 
         if (!usesAccessWidener && !usesAccessTransformer) {
             logger.warn("Asphodel Access Agent: unrecognized loader '{}'; nothing will be emitted", targetLoader);
@@ -48,8 +51,8 @@ public final class AccessAgentProcessor {
         Set<String> baseNames = collectAccessAgentNames(accessAgentDirectory);
 
         for (String baseName : baseNames) {
-            List<AccessDirective> allDirectives = parse(accessAgentDirectory.resolve(baseName), logger);
-            List<AccessDirective> matching = dedupe(allDirectives.stream()
+            List<AccessDeclaration> allDirectives = parse(accessAgentDirectory.resolve(baseName), logger);
+            List<AccessDeclaration> matching = dedupe(allDirectives.stream()
                     .filter(directive -> directive.matches(targetLoader, targetVersion))
                     .toList());
 
@@ -60,21 +63,25 @@ public final class AccessAgentProcessor {
         mergeAll(projectBasePath, targetLoader, targetVersion, generatedAccessDirectory, usesAccessWidener, logger);
     }
 
-    private static void routeAccessWidener(Path projectBasePath, String targetLoader, String targetVersion,
-                                           String baseName, List<AccessDirective> matching, Logger logger) {
-        List<AccessDirective> universal = matching.stream().filter(AccessDirective::hasNoConditions).toList();
-        List<AccessDirective> versionScoped = matching.stream().filter(d -> !d.hasLoaderCondition()).toList();
+    private static void routeAccessWidener(Path projectBasePath, String targetLoader, String targetVersion, String baseName, List<AccessDeclaration> matching, Logger logger) {
+        List<AccessDeclaration> universal = new ArrayList<>();
+        List<AccessDeclaration> versionScoped = new ArrayList<>();
+        for (AccessDeclaration directive : matching) {
+            if (directive.hasNoConditions()) universal.add(directive);
+            if (!directive.hasLoaderCondition()) versionScoped.add(directive);
+        }
         String fileName = baseName + ACCESS_WIDENER_SUFFIX;
-
-        writeTargetFile(projectBasePath.resolve("src/main/resources").resolve(fileName), universal, true, logger);
-        writeTargetFile(projectBasePath.resolve("src/overlays/" + targetVersion + "/resources").resolve(fileName), versionScoped, true, logger);
-        if (!targetLoader.equals(VANILLA_LOADER)) {
-            writeTargetFile(projectBasePath.resolve("src/overlays/" + targetVersion + "-" + targetLoader + "/resources").resolve(fileName), matching, true, logger);
+        Path mainResources = projectBasePath.resolve("src/main/resources");
+        Path versionResources = projectBasePath.resolve("src/overlays/" + targetVersion + "/resources");
+        writeTargetFile(mainResources.resolve(fileName), universal, true, logger);
+        writeTargetFile(versionResources.resolve(fileName), versionScoped, true, logger);
+        if (!VANILLA_LOADER.equals(targetLoader)) {
+            Path loaderResources = projectBasePath.resolve("src/overlays/" + targetVersion + "-" + targetLoader + "/resources");
+            writeTargetFile(loaderResources.resolve(fileName), matching, true, logger);
         }
     }
 
-    private static void routeAccessTransformer(Path projectBasePath, String targetLoader, String targetVersion,
-                                               String baseName, List<AccessDirective> matching, Logger logger) {
+    private static void routeAccessTransformer(Path projectBasePath, String targetLoader, String targetVersion, String baseName, List<AccessDeclaration> matching, Logger logger) {
         Path targetFile = projectBasePath
                 .resolve("src/overlays/" + targetVersion + "-" + targetLoader + "/resources")
                 .resolve(META_INF_DIRECTORY)
@@ -96,14 +103,13 @@ public final class AccessAgentProcessor {
         return names;
     }
 
-    private static List<AccessDirective> parse(Path file, Logger logger) {
-        List<AccessDirective> directives = new ArrayList<>();
+    private static List<AccessDeclaration> parse(Path file, Logger logger) {
+        List<AccessDeclaration> directives = new ArrayList<>();
         List<String> lines = readAllLinesOrEmpty(file);
         for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
             String raw = lines.get(lineIndex).strip();
             if (raw.isEmpty() || raw.startsWith("#")) continue;
-
-            AccessDirective directive = parseLine(raw);
+            AccessDeclaration directive = parseLine(raw);
             if (directive == null) {
                 logger.warn("Asphodel Access Agent: malformed entry in {}:{}: {}", file, lineIndex + 1, raw);
                 continue;
@@ -113,7 +119,7 @@ public final class AccessAgentProcessor {
         return directives;
     }
 
-    private static AccessDirective parseLine(String raw) {
+    private static AccessDeclaration parseLine(String raw) {
         int firstHash = raw.indexOf('#');
         String directivePart = firstHash < 0 ? raw : raw.substring(0, firstHash).strip();
         String conditionPart = firstHash < 0 ? null : raw.substring(firstHash + 1).strip();
@@ -121,120 +127,136 @@ public final class AccessAgentProcessor {
             int secondHash = conditionPart.indexOf('#');
             if (secondHash >= 0) conditionPart = conditionPart.substring(0, secondHash).strip();
         }
-
-        AccessDirective base = parseDirectivePart(directivePart);
+        AccessDeclaration base = parseDirectivePart(directivePart);
         if (base == null) return null;
-
-        Map<String, String> conditions = parseConditions(conditionPart);
-        return new AccessDirective(base.kind(), base.targetType(), base.fqn(), base.memberName(), base.descriptor(),
-                conditions == null ? null : conditions.get("loader"),
-                conditions == null ? null : conditions.get("version"));
+        Conditions conditions = parseConditions(conditionPart);
+        return new AccessDeclaration(base.kind(), base.targetType(), base.fqn(), base.memberName(), base.descriptor(),
+                conditions == null ? null : conditions.loader(),
+                conditions == null ? null : conditions.version());
     }
 
-    private static AccessDirective parseDirectivePart(String directivePart) {
+    private static AccessDeclaration parseDirectivePart(String directivePart) {
         if (directivePart.isEmpty()) return null;
-
-        String[] tokens = directivePart.split("\\s+");
+        String[] tokens = WHITESPACE_PATTERN.split(directivePart);
         if (tokens.length < 3) return null;
-
-        Set<AccessDirective.Kind> kinds = new LinkedHashSet<>();
+        boolean hasAccessible = false;
+        boolean hasExtendable = false;
+        boolean hasMutable = false;
         int index = 0;
         while (index < tokens.length) {
-            AccessDirective.Kind kind = AccessDirective.Kind.fromWord(tokens[index]);
+            AccessDeclaration.Kind kind = AccessDeclaration.Kind.fromWord(tokens[index]);
             if (kind == null) break;
-            kinds.add(kind);
+            switch (kind) {
+                case ACCESSIBLE -> hasAccessible = true;
+                case EXTENDABLE -> hasExtendable = true;
+                case MUTABLE -> hasMutable = true;
+            }
             index++;
         }
-        if (kinds.isEmpty() || index >= tokens.length) return null;
-
-        AccessDirective.TargetType targetType = AccessDirective.TargetType.fromWord(tokens[index]);
+        if (!hasAccessible && !hasExtendable && !hasMutable) return null;
+        if (index >= tokens.length) return null;
+        AccessDeclaration.TargetType targetType = AccessDeclaration.TargetType.fromWord(tokens[index]);
         if (targetType == null) return null;
         index++;
-
         if (index >= tokens.length) return null;
         String fqn = tokens[index++].replace('/', '.');
-
         String memberName = null;
         String descriptor = null;
-        if (targetType != AccessDirective.TargetType.CLASS) {
+        if (targetType != AccessDeclaration.TargetType.CLASS) {
             if (index + 1 >= tokens.length) return null;
             memberName = tokens[index++];
             descriptor = tokens[index++];
         }
         if (index != tokens.length) return null;
-
-        AccessDirective.Kind canonicalKind = canonicalize(kinds, targetType);
+        AccessDeclaration.Kind canonicalKind = canonicalize(hasAccessible, hasExtendable, hasMutable, targetType);
         if (canonicalKind == null) return null;
-
-        return new AccessDirective(canonicalKind, targetType, fqn, memberName, descriptor, null, null);
+        return new AccessDeclaration(canonicalKind, targetType, fqn, memberName, descriptor, null, null);
     }
 
-    private static Map<String, String> parseConditions(String conditionPart) {
+    private static Conditions parseConditions(String conditionPart) {
         if (conditionPart == null || conditionPart.isEmpty()) return null;
-
-        Map<String, String> conditions = new LinkedHashMap<>();
+        String loader = null;
+        String version = null;
         for (String token : conditionPart.split(",")) {
             String trimmed = token.strip();
             if (trimmed.isEmpty()) continue;
-
             int equalsIndex = trimmed.indexOf('=');
             if (equalsIndex <= 0 || equalsIndex >= trimmed.length() - 1) return null;
-
             String key = trimmed.substring(0, equalsIndex).strip().toLowerCase();
             String value = trimmed.substring(equalsIndex + 1).strip();
             if (value.isEmpty() || value.contains(" ")) return null;
-            if (!key.equals("loader") && !key.equals("version")) return null;
-            if (!value.equals("*")) conditions.put(key, value);
+            if (key.equals("loader")) {
+                if (!value.equals("*")) loader = value;
+            } else if (key.equals("version")) {
+                if (!value.equals("*")) version = value;
+            } else return null;
         }
-
-        return conditions.isEmpty() ? null : conditions;
+        if (loader == null && version == null) return null;
+        return new Conditions(loader, version);
     }
 
-    private static AccessDirective.Kind canonicalize(Set<AccessDirective.Kind> kinds, AccessDirective.TargetType targetType) {
-        for (AccessDirective.Kind kind : kinds) {
-            if (!kind.validFor(targetType)) return null;
-        }
-        if (kinds.contains(AccessDirective.Kind.EXTENDABLE)) return AccessDirective.Kind.EXTENDABLE;
-        if (kinds.contains(AccessDirective.Kind.MUTABLE)) return AccessDirective.Kind.MUTABLE;
-        return kinds.contains(AccessDirective.Kind.ACCESSIBLE) ? AccessDirective.Kind.ACCESSIBLE : null;
+    private static AccessDeclaration.Kind canonicalize(boolean hasAccessible, boolean hasExtendable, boolean hasMutable, AccessDeclaration.TargetType targetType) {
+        if (hasAccessible && !AccessDeclaration.Kind.ACCESSIBLE.validFor(targetType)) return null;
+        if (hasExtendable && !AccessDeclaration.Kind.EXTENDABLE.validFor(targetType)) return null;
+        if (hasMutable && !AccessDeclaration.Kind.MUTABLE.validFor(targetType)) return null;
+        if (hasExtendable) return AccessDeclaration.Kind.EXTENDABLE;
+        if (hasMutable) return AccessDeclaration.Kind.MUTABLE;
+        if (hasAccessible) return AccessDeclaration.Kind.ACCESSIBLE;
+        return null;
     }
 
-    private static List<AccessDirective> dedupe(List<AccessDirective> directives) {
-        Map<String, AccessDirective> byKey = new LinkedHashMap<>();
-        for (AccessDirective directive : directives) {
+    private static List<AccessDeclaration> dedupe(List<AccessDeclaration> directives) {
+        Map<String, AccessDeclaration> byKey = new LinkedHashMap<>();
+        for (AccessDeclaration directive : directives) {
             byKey.merge(directive.dedupKey(), directive, (existing, replacement) ->
                     existing.strength() >= replacement.strength() ? existing : replacement);
         }
         return new ArrayList<>(byKey.values());
     }
 
-    private static void writeTargetFile(Path targetFile, List<AccessDirective> directives, boolean useAccessWidener, Logger logger) {
+    private static void writeTargetFile(Path targetFile, List<AccessDeclaration> directives, boolean useAccessWidener, Logger logger) {
         MarkerSplit split = splitOnMarker(readAllLinesOrEmpty(targetFile), targetFile, logger);
         List<String> before = removeAccessWidenerHeader(split.before(), useAccessWidener);
-
         StringBuilder builder = new StringBuilder();
         if (useAccessWidener) builder.append(ACCESS_WIDENER_HEADER).append('\n');
         for (String line : before) builder.append(line).append('\n');
         if (!directives.isEmpty()) {
             builder.append(GENERATED_BEGIN_MARKER).append('\n');
-            for (AccessDirective directive : directives) {
+            for (AccessDeclaration directive : directives) {
                 builder.append(useAccessWidener ? directive.toAccessWidenerLine() : directive.toAccessTransformerLine()).append('\n');
             }
             builder.append(GENERATED_END_MARKER).append('\n');
         }
         for (String line : split.after()) builder.append(line).append('\n');
-
         writeIfChanged(targetFile, normalizeTrailing(builder.toString()));
     }
 
     private static List<String> removeAccessWidenerHeader(List<String> lines, boolean useAccessWidener) {
         if (!useAccessWidener) return lines;
         List<String> filtered = new ArrayList<>(lines.size());
-        for (String line : lines) if (!line.strip().startsWith("accessWidener")) filtered.add(line);
+        for (String line : lines) if (!startsWithAfterWhitespace(line, "accessWidener")) filtered.add(line);
         return filtered;
     }
 
+    private static boolean startsWithAfterWhitespace(String line, String prefix) {
+        int index = 0;
+        while (index < line.length() && Character.isWhitespace(line.charAt(index))) index++;
+        if (line.length() - index < prefix.length()) return false;
+        return line.regionMatches(index, prefix, 0, prefix.length());
+    }
+
+    private static boolean isMarkerLine(String line, String marker) {
+        int start = 0;
+        int end = line.length();
+        while (start < end && Character.isWhitespace(line.charAt(start))) start++;
+        while (end > start && Character.isWhitespace(line.charAt(end - 1))) end--;
+        if (end - start != marker.length()) return false;
+        return line.regionMatches(start, marker, 0, marker.length());
+    }
+
     private record MarkerSplit(List<String> before, List<String> after) {}
+
+    private record Conditions(String loader, String version) {}
 
     private static MarkerSplit splitOnMarker(List<String> lines, Path targetFile, Logger logger) {
         List<String> before = new ArrayList<>();
@@ -242,22 +264,27 @@ public final class AccessAgentProcessor {
         boolean inside = false;
         boolean sawBegin = false;
         boolean sawEnd = false;
-
         for (String line : lines) {
-            String stripped = line.strip();
-            if (!inside && stripped.equals(GENERATED_BEGIN_MARKER)) { inside = true; sawBegin = true; continue; }
-            if (inside && stripped.equals(GENERATED_END_MARKER)) { inside = false; sawEnd = true; continue; }
+            if (!inside && isMarkerLine(line, GENERATED_BEGIN_MARKER)) {
+                inside = true;
+                sawBegin = true;
+                continue;
+            }
+            if (inside && isMarkerLine(line, GENERATED_END_MARKER)) {
+                inside = false;
+                sawEnd = true;
+                continue;
+            }
             if (!inside) {
                 if (sawBegin) after.add(line);
                 else before.add(line);
             }
         }
-
         if (sawBegin && !sawEnd) {
             logger.warn("Asphodel Access Agent: '{}' has a malformed asphodel-generated block (begin without end); treating whole file as user content", targetFile);
-            return new MarkerSplit(List.copyOf(lines), List.of());
+            return new MarkerSplit(lines, List.of());
         }
-        return new MarkerSplit(List.copyOf(before), List.copyOf(after));
+        return new MarkerSplit(before, after);
     }
 
     private static List<String> readAllLinesOrEmpty(Path file) {
@@ -271,16 +298,24 @@ public final class AccessAgentProcessor {
 
     private static String normalizeTrailing(String content) {
         if (content.isEmpty()) return content;
-        String result = content;
-        while (result.endsWith("\n\n")) result = result.substring(0, result.length() - 1);
-        return result.endsWith("\n") ? result : result + "\n";
+        int trimmedEnd = content.length();
+        while (trimmedEnd > 0 && content.charAt(trimmedEnd - 1) == '\n') trimmedEnd--;
+        if (trimmedEnd == 0) return "\n";
+        return content.substring(0, trimmedEnd) + "\n";
     }
 
     private static void writeIfChanged(Path file, String content) {
         try {
-            Files.createDirectories(file.getParent());
-            String existing = Files.exists(file) ? Files.readString(file) : null;
-            if (existing == null || !existing.equals(content)) Files.writeString(file, content);
+            String existing = null;
+            try {
+                existing = Files.readString(file);
+            } catch (NoSuchFileException ignored) {
+                existing = null;
+            }
+            if (existing != null && existing.equals(content)) return;
+            Path parent = file.getParent();
+            if (parent != null) Files.createDirectories(parent);
+            Files.writeString(file, content);
         } catch (IOException writeException) {
             throw new GradleException("Asphodel Access Agent: failed to write " + file + ": " + writeException.getMessage(), writeException);
         }
@@ -291,28 +326,27 @@ public final class AccessAgentProcessor {
         List<Path> scanDirectories = new ArrayList<>();
         String suffix;
         String mergedName;
-
+        Path mainResources = projectBasePath.resolve("src/main/resources");
+        Path versionResources = projectBasePath.resolve("src/overlays/" + targetVersion + "/resources");
+        Path loaderResources = projectBasePath.resolve("src/overlays/" + targetVersion + "-" + targetLoader + "/resources");
         if (useAccessWidener) {
-            scanDirectories.add(projectBasePath.resolve("src/main/resources"));
-            scanDirectories.add(projectBasePath.resolve("src/overlays/" + targetVersion + "/resources"));
-            if (!targetLoader.equals(VANILLA_LOADER)) scanDirectories.add(projectBasePath.resolve("src/overlays/" + targetVersion + "-" + targetLoader + "/resources"));
+            scanDirectories.add(mainResources);
+            scanDirectories.add(versionResources);
+            if (!VANILLA_LOADER.equals(targetLoader)) scanDirectories.add(loaderResources);
             suffix = ACCESS_WIDENER_SUFFIX;
             mergedName = MERGED_ACCESS_WIDENER_NAME;
         } else {
-            scanDirectories.add(projectBasePath.resolve("src/main/resources").resolve(META_INF_DIRECTORY));
-            scanDirectories.add(projectBasePath.resolve("src/overlays/" + targetVersion + "/resources").resolve(META_INF_DIRECTORY));
-            scanDirectories.add(projectBasePath.resolve("src/overlays/" + targetVersion + "-" + targetLoader + "/resources").resolve(META_INF_DIRECTORY));
+            scanDirectories.add(mainResources.resolve(META_INF_DIRECTORY));
+            scanDirectories.add(versionResources.resolve(META_INF_DIRECTORY));
+            scanDirectories.add(loaderResources.resolve(META_INF_DIRECTORY));
             suffix = ".cfg";
             mergedName = MERGED_ACCESS_TRANSFORMER_NAME;
         }
-
         Set<String> entries = new LinkedHashSet<>();
         for (Path directory : scanDirectories) collectEntriesFrom(directory, suffix, mergedName, useAccessWidener, entries);
-
         StringBuilder builder = new StringBuilder();
         if (useAccessWidener) builder.append(ACCESS_WIDENER_HEADER).append('\n');
         for (String entry : entries) builder.append(entry).append('\n');
-
         writeIfChanged(generatedAccessDirectory.resolve(mergedName), builder.toString());
     }
 
@@ -320,17 +354,17 @@ public final class AccessAgentProcessor {
                                            boolean useAccessWidener, Set<String> entries) {
         if (!Files.isDirectory(directory)) return;
         try (Stream<Path> stream = Files.list(directory)) {
-            for (Path file : stream.filter(Files::isRegularFile)
+            stream.filter(Files::isRegularFile)
                     .filter(path -> path.getFileName().toString().endsWith(suffix))
                     .filter(path -> !path.getFileName().toString().equals(mergedName))
-                    .toList()) {
-                for (String line : readAllLinesOrEmpty(file)) {
-                    String stripped = line.strip();
-                    if (stripped.isEmpty() || stripped.startsWith("#")) continue;
-                    if (useAccessWidener && stripped.startsWith("accessWidener")) continue;
-                    entries.add(stripped);
-                }
-            }
+                    .forEach(file -> {
+                        for (String line : readAllLinesOrEmpty(file)) {
+                            String stripped = line.strip();
+                            if (stripped.isEmpty() || stripped.startsWith("#")) continue;
+                            if (useAccessWidener && stripped.startsWith("accessWidener")) continue;
+                            entries.add(stripped);
+                        }
+                    });
         } catch (IOException listException) {
             throw new GradleException("Asphodel Access Agent: failed to scan " + directory + ": " + listException.getMessage(), listException);
         }

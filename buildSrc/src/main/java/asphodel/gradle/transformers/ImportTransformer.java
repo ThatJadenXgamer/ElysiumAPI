@@ -1,13 +1,16 @@
 package asphodel.gradle.transformers;
 
-import asphodel.gradle.directives.ImportDirective;
+import asphodel.gradle.directives.AsphodelDirectives;
+import asphodel.gradle.directives.DirectiveMatcher;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
 
 public final class ImportTransformer {
 
-    private static final String FQN_PATTERN = "[A-Za-z_][A-Za-z0-9_.]*(?:\\.\\*)?";
+    private static final Pattern FQN_PATTERN = Pattern.compile("[A-Za-z_][A-Za-z0-9_.]*(?:\\.\\*)?");
     private static final String STATIC_PREFIX = "static ";
     private static final String ADD_MARKER = "// asphodel::import*add->";
     private static final String SUFFIX_MARKER = "// asphodel::import*";
@@ -24,13 +27,17 @@ public final class ImportTransformer {
         for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
             String line = lines[lineIndex];
             if (lineIndex > 0) output.append('\n');
+            if (!line.contains("asphodel::import")) {
+                output.append(line);
+                continue;
+            }
 
             String trimmed = line.stripLeading();
             String leadingWhitespace = line.substring(0, line.length() - trimmed.length());
 
             if (trimmed.startsWith(ADD_MARKER)) {
                 String restOfIt = trimmed.substring(ADD_MARKER.length()).strip();
-                ImportDirective directive = parseConditionsAndTarget(restOfIt, true, false);
+                AsphodelDirectives.ImportDirective directive = parseConditionsAndTarget(restOfIt, true, false);
                 if (directive == null) {
                     warnings.add("Malformed import add directive at line " + (lineIndex + 1) + "; line skipped.");
                     continue;
@@ -64,7 +71,7 @@ public final class ImportTransformer {
             boolean originalIsStatic = trimmed.startsWith("import static ");
 
             if (action.equals("replace")) {
-                ImportDirective directive = parseConditionsAndTarget(rest, true, originalIsStatic);
+                AsphodelDirectives.ImportDirective directive = parseConditionsAndTarget(rest, true, originalIsStatic);
                 if (directive == null) {
                     warnings.add("Malformed import replace directive at line " + (lineIndex + 1) + "; line left unchanged.");
                     output.append(line);
@@ -72,19 +79,17 @@ public final class ImportTransformer {
                 }
                 if (directive.matches(currentLoader, currentVersion)) output.append(emitImport(leadingWhitespace, directive));
                 else output.append(codeBeforeMarker);
-
                 continue;
             }
 
             if (action.equals("remove")) {
-                ImportDirective directive = parseConditionsAndTarget(rest, false, originalIsStatic);
+                AsphodelDirectives.ImportDirective directive = parseConditionsAndTarget(rest, false, originalIsStatic);
                 if (directive == null) {
                     warnings.add("Malformed import remove directive at line " + (lineIndex + 1) + "; line left unchanged.");
                     output.append(line);
                     continue;
                 }
                 if (!directive.matches(currentLoader, currentVersion)) output.append(codeBeforeMarker);
-
                 continue;
             }
 
@@ -94,7 +99,7 @@ public final class ImportTransformer {
         return new Result(output.toString(), warnings);
     }
 
-    private static String emitImport(String indent, ImportDirective directive) {
+    private static String emitImport(String indent, AsphodelDirectives.ImportDirective directive) {
         StringBuilder builder = new StringBuilder(indent);
         builder.append("import ");
         if (directive.isStatic()) builder.append("static ");
@@ -103,7 +108,7 @@ public final class ImportTransformer {
         return builder.toString();
     }
 
-    private static ImportDirective parseConditionsAndTarget(String body, boolean hasTarget, boolean originalIsStatic) {
+    private static AsphodelDirectives.ImportDirective parseConditionsAndTarget(String body, boolean hasTarget, boolean originalIsStatic) {
         String conditions;
         String targetFqn = null;
         boolean isStatic = originalIsStatic;
@@ -117,25 +122,12 @@ public final class ImportTransformer {
                 isStatic = true;
                 targetText = targetText.substring(STATIC_PREFIX.length()).strip();
             }
-            if (!targetText.matches(FQN_PATTERN)) return null;
+            if (!FQN_PATTERN.matcher(targetText).matches()) return null;
             targetFqn = targetText;
         } else conditions = body;
 
-        String loader = null;
-        String version = null;
-        for (String token : conditions.split(",")) {
-            int equalsIndex = token.indexOf('=');
-            if (equalsIndex < 0) continue;
-            String key = token.substring(0, equalsIndex).trim().toLowerCase();
-            String value = token.substring(equalsIndex + 1).trim();
-            if (value.isEmpty()) continue;
-            switch (key) {
-                case "loader" -> loader = value;
-                case "version" -> version = value;
-            }
-        }
-
-        return new ImportDirective(loader, version, targetFqn, isStatic);
+        Map<String, String> parsed = DirectiveMatcher.parseConditions(conditions);
+        return new AsphodelDirectives.ImportDirective(parsed.get("loader"), parsed.get("version"), targetFqn, isStatic);
     }
 
     public record Result(String source, List<String> warnings) {}

@@ -9,11 +9,15 @@ import net.jadenxgamer.elysium_api.api.core.attachment.pipeline.ElysiumAttachmen
 import net.jadenxgamer.elysium_api.api.core.attachment.pipeline.ElysiumAttachmentSyncDispatcher;
 import net.jadenxgamer.elysium_api.api.network.pipeline.ElysiumStreamCodec;
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraftforge.common.MinecraftForge;
@@ -27,17 +31,21 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityLeaveLevelEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.level.ChunkEvent;
+import net.minecraftforge.event.level.ChunkWatchEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 
 @ApiStatus.Internal
 public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBackend {
@@ -47,16 +55,23 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
 
     private static final ElysiumAttachmentBackendL20 INSTANCE = new ElysiumAttachmentBackendL20();
 
-    private final Map<ResourceLocation, ElysiumAttachmentType<?>> types = new HashMap<>();
+    private final Map<ResourceLocation, ElysiumAttachmentType<?>> attachmentTypes = new HashMap<>();
+    private final List<ElysiumAttachmentType<?>> syncedTypes = new ArrayList<>();
     private final Map<UUID, PendingCopy> pendingCopies = new ConcurrentHashMap<>();
-    private final Set<UUID> pendingSelfSync = ConcurrentHashMap.newKeySet();
-    private final Map<UUID, Map<ResourceLocation, byte[]>> lastSent = new ConcurrentHashMap<>();
+    private final Set<UUID> pendingSelfSyncPlayers = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, Map<ResourceLocation, byte[]>> lastSentEntityBytes = new ConcurrentHashMap<>();
+    private final Map<ChunkKey, Map<BlockPos, Map<ResourceLocation, byte[]>>> lastSentBlockEntityBytes = new ConcurrentHashMap<>();
+    private final Map<ChunkKey, Map<ResourceLocation, byte[]>> lastSentChunkBytes = new ConcurrentHashMap<>();
+    private final Map<ChunkKey, Map<BlockPos, Map<ResourceLocation, byte[]>>> pendingBlockEntitySyncs = new ConcurrentHashMap<>();
+    private final Map<ChunkKey, Map<ResourceLocation, byte[]>> pendingChunkSyncs = new ConcurrentHashMap<>();
 
     private ElysiumAttachmentBackendL20() {}
 
     public static void installBackend(IEventBus modBus) {
         ElysiumAttachments.installBackend(INSTANCE);
-        ElysiumAttachmentSyncDispatcher.setClientApplier(INSTANCE::applyClientSync);
+        ElysiumAttachmentSyncDispatcher.setEntityApplier(INSTANCE::applyClientEntitySync);
+        ElysiumAttachmentSyncDispatcher.setBlockEntityApplier(INSTANCE::applyClientBlockEntitySync);
+        ElysiumAttachmentSyncDispatcher.setChunkApplier(INSTANCE::applyClientChunkSync);
 
         modBus.addListener((RegisterCapabilitiesEvent event) -> event.register(IElysiumAttachmentHolder.class));
 
@@ -82,23 +97,37 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
         MinecraftForge.EVENT_BUS.addListener((PlayerEvent.PlayerLoggedOutEvent event) -> {
             UUID uuid = event.getEntity().getUUID();
             INSTANCE.pendingCopies.remove(uuid);
-            INSTANCE.pendingSelfSync.remove(uuid);
-            INSTANCE.onPlayerDisconnect(uuid);
+            INSTANCE.pendingSelfSyncPlayers.remove(uuid);
         });
 
         MinecraftForge.EVENT_BUS.addListener((PlayerEvent.PlayerLoggedInEvent event) -> {
             if (!(event.getEntity() instanceof ServerPlayer player)) return;
-            INSTANCE.sendAllSyncedTypes(player, player);
+            INSTANCE.sendAllSyncedEntityTypes(player, player);
         });
 
         MinecraftForge.EVENT_BUS.addListener((PlayerEvent.StartTracking event) -> {
             if (!(event.getEntity() instanceof ServerPlayer player)) return;
-            INSTANCE.sendAllSyncedTypes(player, event.getTarget());
+            INSTANCE.sendAllSyncedEntityTypes(player, event.getTarget());
         });
 
-        MinecraftForge.EVENT_BUS.addListener((EntityLeaveLevelEvent event) -> {
-            INSTANCE.lastSent.remove(event.getEntity().getUUID());
+        MinecraftForge.EVENT_BUS.addListener((EntityLeaveLevelEvent event) -> INSTANCE.lastSentEntityBytes.remove(event.getEntity().getUUID()));
+
+        MinecraftForge.EVENT_BUS.addListener((ChunkWatchEvent.Watch event) ->
+                INSTANCE.onChunkWatch(event.getPlayer(), event.getPos(), event.getLevel()));
+
+        MinecraftForge.EVENT_BUS.addListener((ChunkEvent.Load event) -> {
+            if (!(event.getLevel() instanceof Level level)) return;
+            if (!(event.getChunk() instanceof LevelChunk chunk)) return;
+            INSTANCE.onChunkLoad(level, chunk);
         });
+
+        MinecraftForge.EVENT_BUS.addListener((ChunkEvent.Unload event) -> {
+            if (!(event.getLevel() instanceof Level level)) return;
+            if (!(event.getChunk() instanceof LevelChunk chunk)) return;
+            INSTANCE.onChunkUnload(level, chunk);
+        });
+
+        ElysiumAPI.LOGGER.info("Successfully installed Backend for Data Attachments Facade");
     }
 
     public static void captureBeforeRestore(Player oldPlayer, boolean keepEverything) {
@@ -113,7 +142,7 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
         if (holder == null) return;
         INSTANCE.pendingCopies.remove(uuid);
         INSTANCE.applyStash(holder, pending);
-        INSTANCE.pendingSelfSync.add(uuid);
+        INSTANCE.pendingSelfSyncPlayers.add(uuid);
     }
 
     private void captureAttachments(Player player, boolean keepEverything) {
@@ -122,10 +151,10 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
         IElysiumAttachmentHolder holder = this.resolveHolder(player);
         if (holder == null) return;
         Map<ResourceLocation, Object> stash = new HashMap<>();
-        for (ElysiumAttachmentType<?> type : this.types.values()) {
-            if (!type.isPersistent() && !type.isCopyOnDeath()) continue;
-            Object value = holder.getData(type);
-            if (value != null) stash.put(type.id(), value);
+        for (ElysiumAttachmentType<?> attachmentType : this.attachmentTypes.values()) {
+            if (!attachmentType.isPersistent() && !attachmentType.isCopyOnDeath()) continue;
+            Object value = holder.getData(attachmentType);
+            if (value != null) stash.put(attachmentType.id(), value);
         }
         if (!stash.isEmpty()) this.pendingCopies.put(uuid, new PendingCopy(stash, keepEverything));
     }
@@ -139,142 +168,208 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
         if (holder == null) return;
         this.pendingCopies.remove(uuid);
         this.applyStash(holder, pending);
-        this.pendingSelfSync.add(uuid);
+        this.pendingSelfSyncPlayers.add(uuid);
     }
 
     private void trySelfSync(ServerPlayer player) {
         UUID uuid = player.getUUID();
-        if (!this.pendingSelfSync.contains(uuid)) return;
-        this.pendingSelfSync.remove(uuid);
-        this.sendAllSyncedTypes(player, player);
+        if (!this.pendingSelfSyncPlayers.remove(uuid)) return;
+        this.sendAllSyncedEntityTypes(player, player);
     }
 
     @SuppressWarnings("unchecked")
     private void applyStash(IElysiumAttachmentHolder holder, PendingCopy pending) {
         for (Map.Entry<ResourceLocation, Object> entry : pending.data().entrySet()) {
-            ElysiumAttachmentType<?> type = this.types.get(entry.getKey());
-            if (type == null) continue;
-            if (pending.keepEverything()) {
-                if (!type.isPersistent()) continue;
-            } else {
-                if (!type.isCopyOnDeath()) continue;
-            }
-            holder.setData((ElysiumAttachmentType<Object>) type, entry.getValue());
+            ElysiumAttachmentType<?> attachmentType = this.attachmentTypes.get(entry.getKey());
+            if (attachmentType == null) continue;
+            if (pending.keepEverything() ? !attachmentType.isPersistent() : !attachmentType.isCopyOnDeath()) continue;
+            holder.setData((ElysiumAttachmentType<Object>) attachmentType, entry.getValue());
         }
     }
 
     @Override
     public void register(String modId, ElysiumAttachmentRegistry registry) {
-        for (ElysiumAttachmentType<?> type : registry.types()) this.types.put(type.id(), type);
+        for (ElysiumAttachmentType<?> attachmentType : registry.types()) {
+            this.attachmentTypes.put(attachmentType.id(), attachmentType);
+            if (attachmentType.isSynced()) this.syncedTypes.add(attachmentType);
+        }
     }
 
     @Nullable
     public ElysiumAttachmentType<?> findType(ResourceLocation id) {
-        return this.types.get(id);
+        return this.attachmentTypes.get(id);
     }
 
     public Map<ResourceLocation, ElysiumAttachmentType<?>> registeredTypes() {
-        return this.types;
+        return this.attachmentTypes;
     }
 
     @Nullable
-    private IElysiumAttachmentHolder resolveHolder(Object holder) {
-        if (!(holder instanceof ICapabilityProvider provider)) return null;
+    private IElysiumAttachmentHolder resolveHolder(Object holderObject) {
+        if (!(holderObject instanceof ICapabilityProvider provider)) return null;
         return provider.getCapability(CAPABILITY).resolve().orElse(null);
     }
 
-    private IElysiumAttachmentHolder requireHolder(Object holder) {
-        IElysiumAttachmentHolder cap = this.resolveHolder(holder);
-        if (cap == null) return NoOpHolder.INSTANCE;
-        return cap;
+    private IElysiumAttachmentHolder requireHolder(Object holderObject) {
+        IElysiumAttachmentHolder holder = this.resolveHolder(holderObject);
+        return holder != null ? holder : NoOpHolder.INSTANCE;
     }
 
     @Override
     public <T> T getData(Entity holder, ElysiumAttachmentType<T> type) {
-        T value = this.requireHolder(holder).getData(type);
-        return value != null ? value : type.defaultValue().get();
+        return this.readAttachment(holder, type);
     }
 
     @Override
     public <T> T getData(BlockEntity holder, ElysiumAttachmentType<T> type) {
-        T value = this.requireHolder(holder).getData(type);
-        return value != null ? value : type.defaultValue().get();
+        return this.readAttachment(holder, type);
     }
 
     @Override
     public <T> T getData(LevelChunk holder, ElysiumAttachmentType<T> type) {
-        T value = this.requireHolder(holder).getData(type);
+        return this.readAttachment(holder, type);
+    }
+
+    private <T> T readAttachment(Object holderObject, ElysiumAttachmentType<T> type) {
+        T value = this.requireHolder(holderObject).getData(type);
         return value != null ? value : type.defaultValue().get();
     }
 
     @Override
     public <T> void setData(Entity holder, ElysiumAttachmentType<T> type, @Nullable T value) {
+        if (value == null) { this.removeData(holder, type); return; }
         this.requireHolder(holder).setData(type, value);
-        this.broadcastUpdate(holder, type, value);
+        this.broadcastEntityUpdate(holder, type, value);
     }
 
     @Override
     public <T> void setData(BlockEntity holder, ElysiumAttachmentType<T> type, @Nullable T value) {
+        if (value == null) { this.removeData(holder, type); return; }
         this.requireHolder(holder).setData(type, value);
         holder.setChanged();
+        this.broadcastBlockEntityUpdate(holder, type, value);
     }
 
     @Override
     public <T> void setData(LevelChunk holder, ElysiumAttachmentType<T> type, @Nullable T value) {
+        if (value == null) { this.removeData(holder, type); return; }
         this.requireHolder(holder).setData(type, value);
         holder.setUnsaved(true);
+        this.broadcastChunkUpdate(holder, type, value);
     }
 
     @Override
     public <T> boolean hasData(Entity holder, ElysiumAttachmentType<T> type) {
-        return this.requireHolder(holder).hasData(type);
+        return this.hasAttachment(holder, type);
     }
 
     @Override
     public <T> boolean hasData(BlockEntity holder, ElysiumAttachmentType<T> type) {
-        return this.requireHolder(holder).hasData(type);
+        return this.hasAttachment(holder, type);
     }
 
     @Override
     public <T> boolean hasData(LevelChunk holder, ElysiumAttachmentType<T> type) {
-        return this.requireHolder(holder).hasData(type);
+        return this.hasAttachment(holder, type);
+    }
+
+    private <T> boolean hasAttachment(Object holderObject, ElysiumAttachmentType<T> type) {
+        return this.requireHolder(holderObject).hasData(type);
     }
 
     @Override
     public <T> void removeData(Entity holder, ElysiumAttachmentType<T> type) {
-        boolean had = this.requireHolder(holder).hasData(type);
-        this.requireHolder(holder).setData(type, null);
-        if (had) this.broadcastRemoval(holder, type);
+        IElysiumAttachmentHolder nativeHolder = this.requireHolder(holder);
+        boolean hadValue = nativeHolder.hasData(type);
+        nativeHolder.setData(type, null);
+        if (hadValue) this.broadcastEntityRemoval(holder, type);
     }
 
     @Override
     public <T> void removeData(BlockEntity holder, ElysiumAttachmentType<T> type) {
-        this.requireHolder(holder).setData(type, null);
+        IElysiumAttachmentHolder nativeHolder = this.requireHolder(holder);
+        boolean hadValue = nativeHolder.hasData(type);
+        nativeHolder.setData(type, null);
         holder.setChanged();
+        if (hadValue) this.broadcastBlockEntityRemoval(holder, type);
     }
 
     @Override
     public <T> void removeData(LevelChunk holder, ElysiumAttachmentType<T> type) {
-        this.requireHolder(holder).setData(type, null);
+        IElysiumAttachmentHolder nativeHolder = this.requireHolder(holder);
+        boolean hadValue = nativeHolder.hasData(type);
+        nativeHolder.setData(type, null);
         holder.setUnsaved(true);
+        if (hadValue) this.broadcastChunkRemoval(holder, type);
     }
 
-    private <T> void broadcastUpdate(Entity holder, ElysiumAttachmentType<T> type, @Nullable T value) {
-        if (value == null) return;
-        if (holder.level().isClientSide()) return;
-        if (!type.isSynced()) return;
-        byte[] data = this.encodeSyncData(type, value);
-        if (data == null) return;
-        if (!this.shouldBroadcast(holder, type, data)) return;
-        ElysiumAttachmentSyncDispatcher.sendToTrackingAndSelf(holder, type.id(), data);
+    private <T> void broadcastEntityUpdate(Entity holder, ElysiumAttachmentType<T> type, T value) {
+        byte[] bytes = this.prepareSyncBytes(holder.level(), type, value);
+        if (bytes == null) return;
+        Map<ResourceLocation, byte[]> perEntity = this.lastSentEntityBytes.computeIfAbsent(holder.getUUID(), k -> new ConcurrentHashMap<>());
+        if (!this.markSentIfChanged(perEntity, type, bytes)) return;
+        ElysiumAttachmentSyncDispatcher.sendToTrackingAndSelf(holder, type.id(), bytes);
     }
 
-    private <T> void broadcastRemoval(Entity holder, ElysiumAttachmentType<T> type) {
-        if (holder.level().isClientSide()) return;
-        if (!type.isSynced()) return;
-        Map<ResourceLocation, byte[]> perEntity = this.lastSent.get(holder.getUUID());
-        if (perEntity != null) perEntity.remove(type.id());
+    private <T> void broadcastBlockEntityUpdate(BlockEntity holder, ElysiumAttachmentType<T> type, T value) {
+        Level level = holder.getLevel();
+        byte[] bytes = this.prepareSyncBytes(level, type, value);
+        if (bytes == null) return;
+        ChunkKey chunkKey = new ChunkKey(level.dimension().location(), new ChunkPos(holder.getBlockPos()));
+        Map<ResourceLocation, byte[]> perBlockEntity = this.lastSentBlockEntityBytes
+                .computeIfAbsent(chunkKey, k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(holder.getBlockPos(), k -> new ConcurrentHashMap<>());
+        if (!this.markSentIfChanged(perBlockEntity, type, bytes)) return;
+        ElysiumAttachmentSyncDispatcher.sendToTrackingBlockEntity(holder, type.id(), bytes);
+    }
+
+    private <T> void broadcastChunkUpdate(LevelChunk holder, ElysiumAttachmentType<T> type, T value) {
+        Level level = holder.getLevel();
+        byte[] bytes = this.prepareSyncBytes(level, type, value);
+        if (bytes == null) return;
+        ChunkKey chunkKey = new ChunkKey(level.dimension().location(), holder.getPos());
+        Map<ResourceLocation, byte[]> perChunk = this.lastSentChunkBytes.computeIfAbsent(chunkKey, k -> new ConcurrentHashMap<>());
+        if (!this.markSentIfChanged(perChunk, type, bytes)) return;
+        ElysiumAttachmentSyncDispatcher.sendToTrackingChunk(holder, type.id(), bytes);
+    }
+
+    private <T> void broadcastEntityRemoval(Entity holder, ElysiumAttachmentType<T> type) {
+        if (holder.level().isClientSide() || !type.isSynced()) return;
+        this.clearLastSent(this.lastSentEntityBytes.get(holder.getUUID()), type.id());
         ElysiumAttachmentSyncDispatcher.sendToTrackingAndSelf(holder, type.id(), null);
+    }
+
+    private <T> void broadcastBlockEntityRemoval(BlockEntity holder, ElysiumAttachmentType<T> type) {
+        Level level = holder.getLevel();
+        if (level == null || level.isClientSide() || !type.isSynced()) return;
+        ChunkKey chunkKey = new ChunkKey(level.dimension().location(), new ChunkPos(holder.getBlockPos()));
+        Map<BlockPos, Map<ResourceLocation, byte[]>> perChunk = this.lastSentBlockEntityBytes.get(chunkKey);
+        if (perChunk != null) this.clearLastSent(perChunk.get(holder.getBlockPos()), type.id());
+        ElysiumAttachmentSyncDispatcher.sendToTrackingBlockEntity(holder, type.id(), null);
+    }
+
+    private <T> void broadcastChunkRemoval(LevelChunk holder, ElysiumAttachmentType<T> type) {
+        Level level = holder.getLevel();
+        if (level == null || level.isClientSide() || !type.isSynced()) return;
+        ChunkKey chunkKey = new ChunkKey(level.dimension().location(), holder.getPos());
+        this.clearLastSent(this.lastSentChunkBytes.get(chunkKey), type.id());
+        ElysiumAttachmentSyncDispatcher.sendToTrackingChunk(holder, type.id(), null);
+    }
+
+    private <T> byte[] prepareSyncBytes(Level level, ElysiumAttachmentType<T> type, T value) {
+        if (level == null || level.isClientSide() || !type.isSynced()) return null;
+        return this.encodeSyncData(type, value);
+    }
+
+    private boolean markSentIfChanged(Map<ResourceLocation, byte[]> perHolderBytes, ElysiumAttachmentType<?> type, byte[] bytes) {
+        byte[] previous = perHolderBytes.get(type.id());
+        if (previous != null && Arrays.equals(previous, bytes)) return false;
+        perHolderBytes.put(type.id(), bytes);
+        return true;
+    }
+
+    private void clearLastSent(@Nullable Map<ResourceLocation, byte[]> perHolderBytes, ResourceLocation attachmentId) {
+        if (perHolderBytes != null) perHolderBytes.remove(attachmentId);
     }
 
     @SuppressWarnings("unchecked")
@@ -284,87 +379,146 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
         try {
             FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
             codec.encode(buf, value);
-            byte[] data = new byte[buf.readableBytes()];
-            buf.readBytes(data);
-            return data;
-        } catch (Exception e) {
-            return null;
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.readBytes(bytes);
+            return bytes;
+        } catch (Exception ignored) { return null; }
+    }
+
+    private void sendAllSyncedEntityTypes(ServerPlayer player, Entity entity) {
+        for (ElysiumAttachmentType<?> attachmentType : this.syncedTypes) {
+            this.sendCurrentTo(entity, attachmentType, (attachmentId, bytes) -> ElysiumAttachmentSyncDispatcher.sendToPlayer(player, entity, attachmentId, bytes));
         }
     }
 
-    private boolean shouldBroadcast(Entity holder, ElysiumAttachmentType<?> type, byte[] data) {
-        Map<ResourceLocation, byte[]> perEntity = this.lastSent.computeIfAbsent(holder.getUUID(), k -> new ConcurrentHashMap<>());
-        byte[] last = perEntity.get(type.id());
-        if (last != null && Arrays.equals(last, data)) return false;
-        perEntity.put(type.id(), data);
-        return true;
-    }
-
-    private void sendAllSyncedTypes(ServerPlayer player, Entity entity) {
-        for (ElysiumAttachmentType<?> type : this.types.values()) {
-            if (!type.isSynced()) continue;
-            this.sendCurrentTo(player, entity, type);
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private <T> void sendCurrentTo(ServerPlayer player, Entity entity, ElysiumAttachmentType<T> type) {
-        IElysiumAttachmentHolder holder = this.resolveHolder(entity);
+    private <T> void sendCurrentTo(Object holderObject, ElysiumAttachmentType<T> type, BiConsumer<ResourceLocation, byte[]> dispatcher) {
+        IElysiumAttachmentHolder holder = this.resolveHolder(holderObject);
         if (holder == null) return;
         T value = holder.getData(type);
         if (value == null) return;
-        byte[] data = this.encodeSyncData(type, value);
-        if (data == null) return;
-        ElysiumAttachmentSyncDispatcher.sendToPlayer(player, entity, type.id(), data);
+        byte[] bytes = this.encodeSyncData(type, value);
+        if (bytes == null) return;
+        dispatcher.accept(type.id(), bytes);
     }
 
-    private void onPlayerDisconnect(UUID playerId) {
-        for (Set<UUID> set : this.pendingCopyPlayerSets()) set.remove(playerId);
-    }
+    private void onChunkWatch(ServerPlayer player, ChunkPos pos, ServerLevel level) {
+        LevelChunk chunk = level.getChunk(pos.x, pos.z);
 
-    private Set<Set<UUID>> pendingCopyPlayerSets() {
-        return new HashSet<>();
-    }
+        for (ElysiumAttachmentType<?> attachmentType : this.syncedTypes)
+            this.sendCurrentTo(chunk, attachmentType, (attachmentId, bytes) -> ElysiumAttachmentSyncDispatcher.sendToPlayer(player, chunk, attachmentId, bytes));
 
-    private void applyClientSync(int entityId, ResourceLocation attachmentId, @Nullable byte[] data) {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null) return;
-        Entity entity = mc.level.getEntity(entityId);
-        if (entity == null && mc.player != null && mc.player.getId() == entityId) {
-            entity = mc.player;
+        for (BlockEntity blockEntity : chunk.getBlockEntities().values()) {
+            for (ElysiumAttachmentType<?> attachmentType : this.syncedTypes)
+                this.sendCurrentTo(blockEntity, attachmentType, (attachmentId, bytes) -> ElysiumAttachmentSyncDispatcher.sendToPlayer(player, blockEntity, attachmentId, bytes));
         }
+    }
+
+    private void onChunkLoad(Level level, LevelChunk chunk) {
+        if (!level.isClientSide()) return;
+
+        ChunkKey chunkKey = new ChunkKey(level.dimension().location(), chunk.getPos());
+
+        Map<ResourceLocation, byte[]> pendingChunk = this.pendingChunkSyncs.remove(chunkKey);
+        if (pendingChunk != null) {
+            for (Map.Entry<ResourceLocation, byte[]> entry : pendingChunk.entrySet()) {
+                ElysiumAttachmentType<?> attachmentType = this.attachmentTypes.get(entry.getKey());
+                if (attachmentType == null || !attachmentType.isSynced()) continue;
+                this.decodeAndSet(chunk, attachmentType, entry.getValue());
+            }
+        }
+
+        Map<BlockPos, Map<ResourceLocation, byte[]>> pendingBlockEntities = this.pendingBlockEntitySyncs.remove(chunkKey);
+        if (pendingBlockEntities == null) return;
+        for (Map.Entry<BlockPos, Map<ResourceLocation, byte[]>> blockEntityEntry : pendingBlockEntities.entrySet()) {
+            BlockEntity blockEntity = level.getBlockEntity(blockEntityEntry.getKey());
+            if (blockEntity == null) continue;
+            for (Map.Entry<ResourceLocation, byte[]> attachmentEntry : blockEntityEntry.getValue().entrySet()) {
+                ElysiumAttachmentType<?> attachmentType = this.attachmentTypes.get(attachmentEntry.getKey());
+                if (attachmentType == null || !attachmentType.isSynced()) continue;
+                this.decodeAndSet(blockEntity, attachmentType, attachmentEntry.getValue());
+            }
+        }
+    }
+
+    private void onChunkUnload(Level level, LevelChunk chunk) {
+        ChunkKey chunkKey = new ChunkKey(level.dimension().location(), chunk.getPos());
+        if (level.isClientSide()) {
+            this.pendingBlockEntitySyncs.remove(chunkKey);
+            this.pendingChunkSyncs.remove(chunkKey);
+        } else {
+            this.lastSentBlockEntityBytes.remove(chunkKey);
+            this.lastSentChunkBytes.remove(chunkKey);
+        }
+    }
+
+    private void applyClientEntitySync(int entityId, ResourceLocation attachmentId, byte @Nullable [] bytes) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.level == null) return;
+        Entity entity = client.level.getEntity(entityId);
+        if (entity == null && client.player != null && client.player.getId() == entityId) entity = client.player;
         if (entity == null) return;
-        ElysiumAttachmentType<?> type = this.types.get(attachmentId);
-        if (type == null || !type.isSynced()) return;
-        this.decodeAndSet(entity, type, data);
+        ElysiumAttachmentType<?> attachmentType = this.attachmentTypes.get(attachmentId);
+        if (attachmentType == null || !attachmentType.isSynced()) return;
+        this.decodeAndSet(entity, attachmentType, bytes);
+    }
+
+    private void applyClientBlockEntitySync(ResourceLocation dimension, BlockPos pos, ResourceLocation attachmentId, byte @Nullable [] bytes) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.level == null || !client.level.dimension().location().equals(dimension)) return;
+        ElysiumAttachmentType<?> attachmentType = this.attachmentTypes.get(attachmentId);
+        if (attachmentType == null || !attachmentType.isSynced()) return;
+
+        BlockEntity blockEntity = client.level.getBlockEntity(pos);
+        if (blockEntity == null) {
+            if (bytes == null) return;
+            this.pendingBlockEntitySyncs
+                    .computeIfAbsent(new ChunkKey(dimension, new ChunkPos(pos)), k -> new ConcurrentHashMap<>())
+                    .computeIfAbsent(pos, k -> new ConcurrentHashMap<>())
+                    .put(attachmentId, bytes);
+            return;
+        }
+        this.decodeAndSet(blockEntity, attachmentType, bytes);
+    }
+
+    private void applyClientChunkSync(ResourceLocation dimension, ChunkPos pos, ResourceLocation attachmentId, byte @Nullable [] bytes) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.level == null || !client.level.dimension().location().equals(dimension)) return;
+        ElysiumAttachmentType<?> attachmentType = this.attachmentTypes.get(attachmentId);
+        if (attachmentType == null || !attachmentType.isSynced()) return;
+
+        LevelChunk chunk = client.level.getChunkSource().getChunkNow(pos.x, pos.z);
+        if (chunk == null) {
+            if (bytes == null) return;
+            this.pendingChunkSyncs
+                    .computeIfAbsent(new ChunkKey(dimension, pos), k -> new ConcurrentHashMap<>())
+                    .put(attachmentId, bytes);
+            return;
+        }
+        this.decodeAndSet(chunk, attachmentType, bytes);
     }
 
     @SuppressWarnings("unchecked")
-    private <T> void decodeAndSet(Entity entity, ElysiumAttachmentType<T> type, @Nullable byte[] data) {
-        IElysiumAttachmentHolder holder = this.resolveHolder(entity);
+    private <T> void decodeAndSet(Object holderObject, ElysiumAttachmentType<T> type, byte @Nullable [] bytes) {
+        IElysiumAttachmentHolder holder = this.resolveHolder(holderObject);
         if (holder == null) return;
-        if (data == null) {
-            holder.setData(type, null);
-            return;
-        }
-        ElysiumStreamCodec<? super FriendlyByteBuf, T> codec = (ElysiumStreamCodec<? super FriendlyByteBuf, T>) type.syncCodec();
+        if (bytes == null) { holder.setData(type, null); return; }
+        ElysiumStreamCodec<? super FriendlyByteBuf, T> codec = type.syncCodec();
         if (codec == null) return;
         try {
-            FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.wrappedBuffer(data));
-            T value = codec.decode(buf);
-            holder.setData(type, value);
+            FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.wrappedBuffer(bytes));
+            holder.setData(type, codec.decode(buf));
         } catch (Exception ignored) {}
     }
 
-    private record PendingCopy(Map<ResourceLocation, Object> data, boolean keepEverything) {
-    }
+    private record ChunkKey(ResourceLocation dimension, ChunkPos pos) {}
+
+    private record PendingCopy(Map<ResourceLocation, Object> data, boolean keepEverything) {}
 
     private static final class NoOpHolder implements IElysiumAttachmentHolder {
 
         static final NoOpHolder INSTANCE = new NoOpHolder();
 
-        private NoOpHolder() {
-        }
+        private NoOpHolder() {}
 
         @Override
         public <T> @Nullable T getData(ElysiumAttachmentType<T> type) {
@@ -372,8 +526,7 @@ public final class ElysiumAttachmentBackendL20 implements ElysiumAttachmentBacke
         }
 
         @Override
-        public <T> void setData(ElysiumAttachmentType<T> type, @Nullable T value) {
-        }
+        public <T> void setData(ElysiumAttachmentType<T> type, @Nullable T value) {}
 
         @Override
         public <T> boolean hasData(ElysiumAttachmentType<T> type) {

@@ -58,7 +58,6 @@ public final class CompilationUnitMerger {
             if (contributionSourceFile.unit().getTypes().isEmpty()) continue;
             TypeDeclaration<?> contributionType = contributionSourceFile.unit().getTypes().get(0);
             if (isExcluded(contributionType, contributionSourceFile.sourceLines())) continue;
-
             for (AnnotationExpr annotation : contributionType.getAnnotations()) mergedAnnotations.putIfAbsent(annotation.getNameAsString(), annotation.clone());
         }
         mergedType.setAnnotations(new NodeList<>(mergedAnnotations.values()));
@@ -66,23 +65,23 @@ public final class CompilationUnitMerger {
         Map<String, BodyDeclaration<?>> mergedMembers = new LinkedHashMap<>();
         Map<String, String> memberSignatures = new LinkedHashMap<>();
         for (BodyDeclaration<?> primaryMember : mergedType.getMembers())
-            registerMember(mergedMembers, memberSignatures, primaryMember, false);
+            registerMember(mergedMembers, memberSignatures, primaryMember, false, false);
 
         for (SourceFile contributionSourceFile : contributionSourceFiles) {
             if (contributionSourceFile.unit().getTypes().isEmpty()) continue;
 
             TypeDeclaration<?> contributionType = contributionSourceFile.unit().getTypes().get(0);
-
-            if (isExcluded(contributionType, contributionSourceFile.sourceLines())) continue;
+            boolean typeExcluded = isExcluded(contributionType, contributionSourceFile.sourceLines());
+            if (typeExcluded) continue;
 
             for (BodyDeclaration<?> contributionMember : contributionType.getMembers()) {
                 if (isExcluded(contributionMember, contributionSourceFile.sourceLines())) continue;
                 if (contributionMember instanceof ConstructorDeclaration contributionConstructor) {
                     ConstructorDeclaration renamedConstructor = contributionConstructor.clone();
                     renamedConstructor.setName(mergedType.getNameAsString());
-                    registerMember(mergedMembers, memberSignatures, renamedConstructor, true);
+                    registerMember(mergedMembers, memberSignatures, renamedConstructor, true, false);
                 } else {
-                    registerMember(mergedMembers, memberSignatures, contributionMember, true);
+                    registerMember(mergedMembers, memberSignatures, contributionMember, true, true);
                 }
             }
         }
@@ -92,7 +91,10 @@ public final class CompilationUnitMerger {
 
     private static boolean isExcluded(BodyDeclaration<?> memberDeclaration, List<String> sourceLines) {
         Optional<Comment> attachedComment = memberDeclaration.getComment();
-        if (attachedComment.isPresent() && EXCLUDE_PATTERN.matcher(attachedComment.get().getContent()).find()) return true;
+        if (attachedComment.isPresent()) {
+            String content = attachedComment.get().getContent();
+            if (content.contains("asphodel::exclude") && EXCLUDE_PATTERN.matcher(content).find()) return true;
+        }
         if (sourceLines == null) return false;
         Optional<Range> memberRange = memberDeclaration.getRange();
         if (memberRange.isEmpty()) return false;
@@ -103,26 +105,26 @@ public final class CompilationUnitMerger {
         int previousLineIndex = beginLineNumber - 2;
         if (previousLineIndex >= 0 && previousLineIndex < sourceLines.size()) {
             String previousLine = sourceLines.get(previousLineIndex).strip();
-            if ((previousLine.startsWith("//") || previousLine.startsWith("/*")) && EXCLUDE_PATTERN.matcher(previousLine).find()) return true;
+            if ((previousLine.startsWith("//") || previousLine.startsWith("/*")) && previousLine.contains("asphodel::exclude") && EXCLUDE_PATTERN.matcher(previousLine).find()) return true;
         }
 
         int endLineIndex = endLineNumber - 1;
         if (endLineIndex >= 0 && endLineIndex < sourceLines.size()) {
             String endLine = sourceLines.get(endLineIndex);
-            return EXCLUDE_PATTERN.matcher(endLine).find();
+            return endLine.contains("asphodel::exclude") && EXCLUDE_PATTERN.matcher(endLine).find();
         }
 
         return false;
     }
 
-    private void registerMember(Map<String, BodyDeclaration<?>> mergedMembers, Map<String, String> memberSignatures, BodyDeclaration<?> memberDeclaration, boolean overrideExisting) {
+    private void registerMember(Map<String, BodyDeclaration<?>> mergedMembers, Map<String, String> memberSignatures, BodyDeclaration<?> memberDeclaration, boolean overrideExisting, boolean needsClone) {
         MemberKey memberKey = keyOf(memberDeclaration);
         String existingSignature = memberSignatures.get(memberKey.key());
         if (existingSignature != null && !existingSignature.equals(memberKey.signature())) {
             throw new GradleException("Conflicting declarations for '" + memberKey.key() + "': " + existingSignature + " vs " + memberKey.signature());
         }
         if (overrideExisting || !mergedMembers.containsKey(memberKey.key())) {
-            mergedMembers.put(memberKey.key(), memberDeclaration.clone());
+            mergedMembers.put(memberKey.key(), needsClone ? memberDeclaration.clone() : memberDeclaration);
             memberSignatures.put(memberKey.key(), memberKey.signature());
         }
     }

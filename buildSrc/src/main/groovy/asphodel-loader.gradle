@@ -3,7 +3,13 @@ plugins {
     id 'idea'
 }
 
-def asphodelExt = project.extensions.create('asphodel', asphodel.gradle.AsphodelExtension)
+def asphodelExt = extensions.findByName('asphodel')
+if (asphodelExt == null) {
+    asphodelExt = extensions.create('asphodel', asphodel.gradle.AsphodelExtension)
+}
+if (extensions.findByName('asphodelExt') == null) {
+    extensions.add('asphodelExt', asphodelExt)
+}
 
 repositories {
     mavenCentral()
@@ -59,11 +65,12 @@ project.afterEvaluate {
     }
 
     def propertyKey = asphodelExt.propertyKey
+    def prop = { String name -> project.hasProperty(name) ? project.property(name).toString() : null }
 
-    if (!project.hasProperty("mc_${propertyKey}")) {
+    if (prop("mc_${propertyKey}") == null) {
         throw new GradleException("Missing property 'mc_${propertyKey}' required by ${project.path}")
     }
-    if (!project.hasProperty("java_${propertyKey}")) {
+    if (prop("java_${propertyKey}") == null) {
         throw new GradleException("Missing property 'java_${propertyKey}' required by ${project.path}")
     }
 
@@ -71,7 +78,7 @@ project.afterEvaluate {
     def isSharedRoot = projectName == sharedRootName
 
     def mcVer = version
-    def javaVer = project.property("java_${propertyKey}").toString()
+    def javaVer = prop("java_${propertyKey}")
 
     project.ext.asphodelMcVersion = mcVer
     project.ext.asphodelJavaVersion = javaVer
@@ -79,14 +86,12 @@ project.afterEvaluate {
 
     project.ext.mc = mcVer
     project.ext.java = javaVer
-    project.ext.minecraft_range = project.hasProperty("minecraft_range_${propertyKey}")
-            ? project.property("minecraft_range_${propertyKey}").toString()
-            : "[${mcVer},)"
+    project.ext.minecraft_range = prop("minecraft_range_${propertyKey}") ?: "[${mcVer},)"
 
-    ['fabric_loader', 'forge', 'forge_range', 'neoforge', 'neoforge_range'].each { baseName ->
-        def k = "${baseName}_${propertyKey}"
-        if (project.hasProperty(k)) {
-            project.ext.set(baseName, project.property(k).toString())
+    ['fabric_loader', 'quilt_loader', 'forge', 'forge_range', 'neoforge', 'neoforge_range'].each { baseName ->
+        def value = prop("${baseName}_${propertyKey}")
+        if (value != null) {
+            project.ext.set(baseName, value)
         }
     }
 
@@ -114,64 +119,58 @@ project.afterEvaluate {
         stateFile.set(layout.buildDirectory.file('asphodel/assemble-state.tsv'))
     }
 
-    sourceSets.main.java.setSrcDirs([])
+    def javaSrcDirs = []
+    def resourceSrcDirs = []
     if (isSharedRoot) {
-        sourceSets.main.java.srcDir(javaSourceDirFile)
-        sourceSets.main.java.srcDir(versionJavaDirFile)
+        javaSrcDirs = [javaSourceDirFile, versionJavaDirFile]
+        resourceSrcDirs = [mainResourceDirFile, versionResourceDirFile]
     } else if (loader == 'vanilla') {
-        sourceSets.main.java.srcDir(versionJavaDirFile)
+        javaSrcDirs = [versionJavaDirFile]
+        resourceSrcDirs = [versionResourceDirFile]
     } else {
-        sourceSets.main.java.srcDir(loaderJavaDirFile)
+        javaSrcDirs = [loaderJavaDirFile]
+        resourceSrcDirs = [mainResourceDirFile, versionResourceDirFile, loaderResourceDirFile]
     }
-
-    sourceSets.main.resources.setSrcDirs([])
-    if (isSharedRoot) {
-        sourceSets.main.resources.srcDir(mainResourceDirFile)
-        sourceSets.main.resources.srcDir(versionResourceDirFile)
-    } else if (loader == 'vanilla') {
-        sourceSets.main.resources.srcDir(versionResourceDirFile)
-    } else {
-        sourceSets.main.resources.srcDir(mainResourceDirFile)
-        sourceSets.main.resources.srcDir(versionResourceDirFile)
-        sourceSets.main.resources.srcDir(loaderResourceDirFile)
-    }
+    sourceSets.main.java.setSrcDirs(javaSrcDirs)
+    sourceSets.main.resources.setSrcDirs(resourceSrcDirs)
 
     def mergedOutputDir = layout.buildDirectory.dir("classes")
     sourceSets.main.output.resourcesDir = mergedOutputDir.get().asFile
     sourceSets.main.java.destinationDirectory = mergedOutputDir
 
-    tasks.named('compileJava', JavaCompile) {
-        dependsOn assembleTask
-        source = fileTree(assembleTask.flatMap { it.outputJavaDir })
-    }
-
+    def sharedRootProject = null
+    def versionVanillaProject = null
     if (!isSharedRoot) {
-        def sharedRootProject = rootProject.findProject(":${sharedRootName}")
-        if (sharedRootProject != null && sharedRootProject != project) {
+        def candidateShared = rootProject.findProject(":${sharedRootName}")
+        if (candidateShared != null && candidateShared != project) {
+            sharedRootProject = candidateShared
             dependencies {
                 compileOnly sharedRootProject
             }
-            tasks.named('compileJava', JavaCompile) {
-                dependsOn "${sharedRootProject.path}:processResources"
-            }
         }
-
         if (loader != 'vanilla') {
-            def versionVanillaName = "${propertyKey}_vanilla"
-            def versionVanillaProject = rootProject.findProject(":${versionVanillaName}")
-            if (versionVanillaProject != null && versionVanillaProject != project) {
+            def candidateVanilla = rootProject.findProject(":${propertyKey}_vanilla")
+            if (candidateVanilla != null && candidateVanilla != project) {
+                versionVanillaProject = candidateVanilla
                 dependencies {
                     compileOnly versionVanillaProject
                 }
-                tasks.named('compileJava', JavaCompile) {
-                    dependsOn "${versionVanillaProject.path}:processResources"
-                }
             }
         }
+    }
+
+    tasks.named('compileJava', JavaCompile) {
+        dependsOn assembleTask
+        source = fileTree(assembleTask.flatMap { it.outputJavaDir })
+        if (sharedRootProject != null) dependsOn "${sharedRootProject.path}:processResources"
+        if (versionVanillaProject != null) dependsOn "${versionVanillaProject.path}:processResources"
     }
 
     def generatedAccessDir = layout.buildDirectory.dir('generated/access').get().asFile
     asphodel.gradle.access.AccessAgentProcessor.process(rootProject.projectDir.toPath(), loader, mcVer, generatedAccessDir.toPath(), logger)
+
+    def mergedWidenerFile = layout.buildDirectory.file('generated/access/merged.accesswidener')
+    def mergedTransformerFile = layout.buildDirectory.file('generated/access/merged.accesstransformer.cfg')
 
     def registerAccessTransformers = { Object extension, File atFile, String pluginName, String extensionName ->
         if (extension == null) {
@@ -186,14 +185,17 @@ project.afterEvaluate {
         }
     }
 
-    if (loader == 'vanilla' || loader == 'fabric') {
+    if (loader == 'vanilla' || loader == 'fabric' || loader == 'quilt') {
         def loomExtension = project.extensions.findByName('loom')
+        if (loomExtension == null && loader == 'quilt') {
+            loomExtension = project.extensions.findByName('quilt')
+        }
         if (loomExtension != null) {
-            loomExtension.accessWidenerPath.set(layout.buildDirectory.file('generated/access/merged.accesswidener'))
+            loomExtension.accessWidenerPath.set(mergedWidenerFile)
         } else logger.warn("Asphodel: source-set '{}' is configured with loader '{}' but no Loom plugin is applied; skipping accessWidenerPath auto-wiring", project.path, loader)
     } else if (loader == 'forge') {
         registerAccessTransformers(project.extensions.findByName('minecraft'),
-                layout.buildDirectory.file('generated/access/merged.accesstransformer.cfg').get().asFile, 'ForgeGradle', 'minecraft')
+                mergedTransformerFile.get().asFile, 'ForgeGradle', 'minecraft')
     } else if (loader == 'neoforge') {
         def neoForgeExtension = project.extensions.findByName('neoForge')
         def neoForgeExtensionName = 'neoForge'
@@ -202,7 +204,7 @@ project.afterEvaluate {
             neoForgeExtensionName = 'minecraft'
         }
         registerAccessTransformers(neoForgeExtension,
-                layout.buildDirectory.file('generated/access/merged.accesstransformer.cfg').get().asFile, 'ModDevGradle', neoForgeExtensionName)
+                mergedTransformerFile.get().asFile, 'ModDevGradle', neoForgeExtensionName)
     }
 
     tasks.named('processResources', ProcessResources) {
@@ -220,6 +222,7 @@ project.afterEvaluate {
                 'license', 'credits', 'description',
                 'mc', 'java', 'minecraft_range',
                 'fabric_loader',
+                'quilt_loader',
                 'forge', 'forge_range',
                 'neoforge', 'neoforge_range'
         ].collectEntries { name ->
@@ -229,6 +232,7 @@ project.afterEvaluate {
         filesMatching([
                 'pack.mcmeta',
                 'fabric.mod.json',
+                'quilt.mod.json',
                 'META-INF/mods.toml',
                 'META-INF/neoforge.mods.toml',
                 '*.mixins.json'

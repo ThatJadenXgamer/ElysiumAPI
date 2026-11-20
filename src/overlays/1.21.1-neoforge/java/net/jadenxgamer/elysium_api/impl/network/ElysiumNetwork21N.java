@@ -1,5 +1,6 @@
 package net.jadenxgamer.elysium_api.impl.network;
 
+import net.jadenxgamer.elysium_api.ElysiumAPI;
 import net.jadenxgamer.elysium_api.api.network.ElysiumNetwork;
 import net.jadenxgamer.elysium_api.api.network.ElysiumNetworkContext;
 import net.jadenxgamer.elysium_api.api.network.ElysiumNetworkDirection;
@@ -48,6 +49,7 @@ public final class ElysiumNetwork21N implements ElysiumNetworkBackend {
     public static void installBackend(IEventBus modBus) {
         ElysiumNetwork.installBackend(INSTANCE);
         modBus.addListener(ElysiumNetwork21N::onRegisterPayloadHandlers);
+        ElysiumAPI.LOGGER.info("Successfully installed Backend for Payload Networking Facade");
     }
 
     private static void onRegisterPayloadHandlers(RegisterPayloadHandlersEvent event) {

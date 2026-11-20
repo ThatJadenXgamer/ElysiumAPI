@@ -4,9 +4,7 @@ import net.jadenxgamer.elysium_api.ElysiumAPI;
 import net.jadenxgamer.elysium_api.api.core.attachment.pipeline.ElysiumAttachmentSyncDispatcher;
 import net.jadenxgamer.elysium_api.api.network.ElysiumNetwork;
 import net.jadenxgamer.elysium_api.api.network.ElysiumNetworkRegistry;
-import net.jadenxgamer.elysium_api.mod.network.payload.client.ConfigSyncPayload;
-import net.jadenxgamer.elysium_api.mod.network.payload.client.ElysiumAttachmentSyncPayload;
-import net.jadenxgamer.elysium_api.mod.network.payload.client.PingS2CPayload;
+import net.jadenxgamer.elysium_api.mod.network.payload.client.*;
 import net.jadenxgamer.elysium_api.mod.network.payload.server.PingC2SPayload;
 
 public class ElysiumNetworking {
@@ -19,7 +17,9 @@ public class ElysiumNetworking {
         // TO CLIENT
         registry.registerS2C(PingS2CPayload.TYPE, PingS2CPayload::handleDataOnClient);
         registry.registerS2C(ConfigSyncPayload.TYPE, ConfigSyncPayload::handleDataOnClient);
-        registry.registerS2C(ElysiumAttachmentSyncPayload.TYPE, ElysiumAttachmentSyncDispatcher::onClientReceive);
+        registry.registerS2C(ElysiumEntityAttachmentSyncPayload.TYPE, ElysiumAttachmentSyncDispatcher::onClientReceiveEntity);
+        registry.registerS2C(ElysiumBlockEntityAttachmentSyncPayload.TYPE, ElysiumAttachmentSyncDispatcher::onClientReceiveBlockEntity);
+        registry.registerS2C(ElysiumChunkAttachmentSyncPayload.TYPE, ElysiumAttachmentSyncDispatcher::onClientReceiveChunk);
 
         // TO SERVER
         registry.registerC2S(PingC2SPayload.TYPE, PingC2SPayload::handleDataOnServer);

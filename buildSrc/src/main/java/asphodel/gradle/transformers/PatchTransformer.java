@@ -1,48 +1,39 @@
 package asphodel.gradle.transformers;
 
-import asphodel.gradle.directives.PatchDirective;
+import asphodel.gradle.directives.AsphodelDirectives;
+import asphodel.gradle.directives.DirectiveMatcher;
 import org.gradle.api.GradleException;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public final class PatchTransformer {
 
     private static final String ID = "[A-Za-z_][A-Za-z0-9_]*";
+    private static final Pattern ID_PATTERN = Pattern.compile(ID);
 
     private PatchTransformer() {
     }
 
-    public static PatchDirective parseDirective(String line) {
+    public static AsphodelDirectives.PatchDirective parseDirective(String line) {
         String[] directive = asphodelDirective(line);
         if (directive == null || !directive[0].equals("patch")) return null;
-
-        String loader = null;
-        String version = null;
-        String id = null;
-        for (String token : directive[1].replace("->", ",").split(",")) {
-            int equalsIndex = token.indexOf('=');
-            if (equalsIndex < 0) continue;
-            String key = token.substring(0, equalsIndex).trim().toLowerCase();
-            String value = token.substring(equalsIndex + 1).trim();
-            if (value.isEmpty()) continue;
-            switch (key) {
-                case "loader" -> loader = value;
-                case "version" -> version = value;
-                case "id" -> id = value;
-            }
-        }
-        if (id == null || !id.matches(ID)) return null;
-        return new PatchDirective(loader, version, id);
+        Map<String, String> parsed = DirectiveMatcher.parseConditions(directive[1]);
+        String id = parsed.get("id");
+        if (id == null || !ID_PATTERN.matcher(id).matches()) return null;
+        return new AsphodelDirectives.PatchDirective(parsed.get("loader"), parsed.get("version"), id);
     }
 
-    public static Result transform(String rawSource, List<PatchDirective> patchDirectives, String currentLoader, String currentVersion) {
+    public static Result transform(String rawSource, List<AsphodelDirectives.PatchDirective> patchDirectives, String currentLoader, String currentVersion) {
         Set<String> activeIds = new HashSet<>();
         Set<String> knownIds = new HashSet<>();
+        Set<String> warnedUnknownIds = new HashSet<>();
         List<String> warnings = new ArrayList<>();
-        for (PatchDirective directive : patchDirectives) {
+        for (AsphodelDirectives.PatchDirective directive : patchDirectives) {
             if (!knownIds.add(directive.id())) {
                 warnings.add("Duplicate patch id '" + directive.id() + "'; first declaration wins.");
                 continue;
@@ -61,9 +52,9 @@ public final class PatchTransformer {
             String line = lines[lineIndex];
             if (lineIndex > 0) output.append('\n');
 
-            if (asphodelDirective(line) != null) continue;
+            if (line.contains("asphodel::") && asphodelDirective(line) != null) continue;
 
-            MassAction mass = massAction(line);
+            MassAction mass = line.contains("mass*") ? massAction(line) : null;
             if (mass != null) {
                 if (mass.play()) {
                     if (massIds != null) throw new GradleException("Nested mass play directive for id(s) '" + joinIds(mass.ids())
@@ -71,7 +62,7 @@ public final class PatchTransformer {
                             + " while mass id(s) '" + joinIds(massIds)
                             + "' (opened at line " + massStartLine + ") was still active");
                     for (String id : mass.ids()) {
-                        if (!knownIds.contains(id)) warnings.add("Unknown patch id '" + id
+                        if (!knownIds.contains(id) && warnedUnknownIds.add(id)) warnings.add("Unknown patch id '" + id
                                 + "' referenced in mass play marker at line " + (lineIndex + 1)
                                 + "; content will be dropped on all configurations.");
                     }
@@ -101,7 +92,15 @@ public final class PatchTransformer {
                     String trimmedLine = line.stripTrailing();
                     if (trimmedLine.endsWith("*/")) {
                         String content = trimmedLine.substring(0, trimmedLine.length() - 2).stripTrailing();
-                        if (active && !content.isBlank()) output.append(content);
+                        String rest = content.stripLeading();
+                        int indentLength = content.length() - rest.length();
+                        String indent = content.substring(0, indentLength);
+                        String stripped = rest;
+                        if (stripped.startsWith("*")) stripped = stripOneLeadingSpace(stripped.substring(1));
+                        if (active && !stripped.isBlank()) {
+                            output.append(indent);
+                            output.append(stripped);
+                        }
                         inBlockComment = false;
                         continue;
                     }
@@ -156,18 +155,18 @@ public final class PatchTransformer {
             boolean isCommentLine = strippedLine.startsWith("//") || strippedLine.startsWith("/*");
 
             if (isCommentLine) {
-                if (endsWithRemoveMarker(strippedLine)) {
+                if (line.contains("remove*") && endsWithRemoveMarker(strippedLine)) {
                     output.append(line);
                     continue;
                 }
-                IncludeMarker include = parseIncludeMarker(line);
+                IncludeMarker include = line.contains("*") ? parseIncludeMarker(line) : null;
                 if (include != null) {
                     List<String> ids = include.ids();
                     boolean anyUnknown = false;
                     for (String id : ids) {
                         if (!knownIds.contains(id)) {
-                            warnings.add("Unknown patch id '" + id + "' referenced in include marker; dropping line.");
                             anyUnknown = true;
+                            if (warnedUnknownIds.add(id)) warnings.add("Unknown patch id '" + id + "' referenced in include marker; dropping line.");
                         }
                     }
                     if (anyUnknown) continue;
@@ -178,14 +177,14 @@ public final class PatchTransformer {
                 continue;
             }
 
-            RemoveMarker remove = parseRemoveMarker(line);
+            RemoveMarker remove = line.contains("remove*") ? parseRemoveMarker(line) : null;
             if (remove != null) {
                 List<String> ids = remove.ids();
                 boolean anyUnknown = false;
                 for (String id : ids) {
                     if (!knownIds.contains(id)) {
-                        warnings.add("Unknown patch id '" + id + "' referenced in remove marker; leaving line unchanged.");
                         anyUnknown = true;
+                        if (warnedUnknownIds.add(id)) warnings.add("Unknown patch id '" + id + "' referenced in remove marker; leaving line unchanged.");
                     }
                 }
                 if (anyUnknown) {
@@ -217,6 +216,7 @@ public final class PatchTransformer {
     }
 
     private static String[] asphodelDirective(String line) {
+        if (!line.contains("asphodel::")) return null;
         String trimmed = line.stripLeading();
         if (!trimmed.startsWith("//")) return null;
         String body = trimmed.substring(2).stripLeading();
@@ -233,6 +233,7 @@ public final class PatchTransformer {
     }
 
     private static MassAction massAction(String line) {
+        if (!line.contains("mass*")) return null;
         String trimmed = line.stripLeading();
         if (!trimmed.startsWith("//")) return null;
         String body = trimmed.substring(2).stripLeading();
@@ -254,6 +255,7 @@ public final class PatchTransformer {
     }
 
     private static boolean endsWithRemoveMarker(String line) {
+        if (!line.contains("remove*")) return false;
         String trimmed = line.stripTrailing();
         int removeIndex = trimmed.lastIndexOf("remove*");
         if (removeIndex < 0) return false;
@@ -262,6 +264,7 @@ public final class PatchTransformer {
     }
 
     private static IncludeMarker parseIncludeMarker(String line) {
+        if (!line.contains("*")) return null;
         String trimmed = line.stripTrailing();
         if (trimmed.endsWith("*/")) trimmed = trimmed.substring(0, trimmed.length() - 2).stripTrailing();
 
@@ -283,6 +286,7 @@ public final class PatchTransformer {
     }
 
     private static RemoveMarker parseRemoveMarker(String line) {
+        if (!line.contains("remove*")) return null;
         String trimmed = line.stripTrailing();
         int removeIndex = trimmed.lastIndexOf("remove*");
         if (removeIndex < 0) return null;
@@ -305,7 +309,7 @@ public final class PatchTransformer {
         List<String> ids = new ArrayList<>(parts.length);
         for (String part : parts) {
             String trimmed = part.strip();
-            if (!trimmed.matches(ID)) return null;
+            if (!ID_PATTERN.matcher(trimmed).matches()) return null;
             ids.add(trimmed);
         }
         return ids;

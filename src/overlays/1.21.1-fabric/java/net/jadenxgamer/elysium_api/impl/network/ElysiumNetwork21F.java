@@ -5,6 +5,7 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.jadenxgamer.elysium_api.ElysiumAPI;
 import net.jadenxgamer.elysium_api.api.network.ElysiumNetwork;
 import net.jadenxgamer.elysium_api.api.network.ElysiumNetworkContext;
 import net.jadenxgamer.elysium_api.api.network.ElysiumNetworkDirection;
@@ -53,6 +54,7 @@ public final class ElysiumNetwork21F implements ElysiumNetworkBackend {
         ElysiumNetwork.installBackend(INSTANCE);
         ServerLifecycleEvents.SERVER_STARTING.register(server -> INSTANCE.currentServer = server);
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> INSTANCE.currentServer = null);
+        ElysiumAPI.LOGGER.info("Successfully installed Backend for Payload Networking Facade");
     }
 
     @Override

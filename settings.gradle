@@ -47,6 +47,18 @@ pluginManagement {
                 includeGroupAndSubgroups('net.neoforged')
             }
         }
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = 'Quilt'
+                    url = uri('https://maven.quiltmc.org/repository/release')
+                }
+            }
+            filter {
+                includeGroupAndSubgroups('org.quiltmc')
+                includeGroup('quilt-loom')
+            }
+        }
     }
 }
 

@@ -1,9 +1,6 @@
 package asphodel.gradle;
 
-import asphodel.gradle.directives.EjectDirective;
-import asphodel.gradle.directives.MergeDirective;
-import asphodel.gradle.directives.MixinDirective;
-import asphodel.gradle.directives.PatchDirective;
+import asphodel.gradle.directives.*;
 import asphodel.gradle.transformers.ImportTransformer;
 import asphodel.gradle.transformers.PatchTransformer;
 import com.github.javaparser.JavaParser;
@@ -65,6 +62,9 @@ public abstract class AssembleSourcesTask extends DefaultTask {
         PARSER_CONFIGURATION = new ParserConfiguration();
         PARSER_CONFIGURATION.setLanguageLevel(ParserConfiguration.LanguageLevel.BLEEDING_EDGE);
     }
+
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static boolean parserProbeDone = false;
 
     private static final Pattern MERGE_DIRECTIVE_PATTERN = Pattern.compile(
             "^\\s*//\\s*asphodel::merge\\s*->\\s*(.+?)\\s*$");
@@ -150,12 +150,14 @@ public abstract class AssembleSourcesTask extends DefaultTask {
     }
 
     private void verifyParserCapability() {
+        if (parserProbeDone) return;
         String probeSource = "class AsphodelParserCapabilityProbe { boolean probe(Object candidate) { return candidate instanceof String name; } }";
         if (!new JavaParser(PARSER_CONFIGURATION).parse(probeSource).isSuccessful()) {
             throw new GradleException("Asphodel requires com.github.javaparser:javaparser-core 3.28.2 on the buildSrc classpath; "
                     + "the currently loaded parser cannot handle Java 16+ syntax. Check buildSrc/build.gradle and verify "
                     + "no plugin is shadowing the parser artifact.");
         }
+        parserProbeDone = true;
     }
 
     private SourceState scanAllSources() throws IOException {
@@ -184,13 +186,13 @@ public abstract class AssembleSourcesTask extends DefaultTask {
     private SourceEntry scanSourceFile(Path path) throws IOException {
         Path normalized = path.toAbsolutePath().normalize();
         String raw = Files.readString(normalized);
-        List<MergeDirective> mergeDirectives = parseMergeDirectives(raw);
-        List<PatchDirective> patchDirectives = parsePatchDirectives(raw);
-        List<MixinDirective> mixinDirectives = parseMixinDirectives(raw);
-
         String normalizedSource = raw.replace("\r\n", "\n").replace('\r', '\n');
-        int packageLine = findPackageLine(normalizedSource);
-        List<EjectDirective> ejectDirectives = parseEjectDirectives(normalizedSource, packageLine, normalized.toString());
+        String[] lines = normalizedSource.split("\n", -1);
+        List<AsphodelDirectives.MergeDirective> mergeDirectives = parseMergeDirectives(lines);
+        List<AsphodelDirectives.PatchDirective> patchDirectives = parsePatchDirectives(lines);
+        List<AsphodelDirectives.MixinDirective> mixinDirectives = parseMixinDirectives(lines);
+        int packageLine = findPackageLine(lines);
+        List<AsphodelDirectives.EjectDirective> ejectDirectives = parseEjectDirectives(lines, packageLine, normalized.toString());
         boolean ejected = isEjected(ejectDirectives, getTargetLoader().get(), getTargetVersion().get());
 
         boolean hasAsphodelMarkers = raw.contains("asphodel::merge")
@@ -204,11 +206,10 @@ public abstract class AssembleSourcesTask extends DefaultTask {
         String fileName = normalized.getFileName().toString();
         String simpleClassName = fileName.substring(0, fileName.length() - ".java".length());
         String fqn = packageName.isEmpty() ? simpleClassName : packageName + "." + simpleClassName;
-        return new SourceEntry(normalized, fqn, mergeDirectives, patchDirectives, mixinDirectives, hasAsphodelMarkers, ejected);
+        return new SourceEntry(normalized, fqn, mergeDirectives, patchDirectives, mixinDirectives, hasAsphodelMarkers, ejected, raw);
     }
 
-    private static int findPackageLine(String normalizedSource) {
-        String[] lines = normalizedSource.split("\n", -1);
+    private static int findPackageLine(String[] lines) {
         for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
             String stripped = lines[lineIndex].strip();
             if (stripped.startsWith("package ") && stripped.endsWith(";")) return lineIndex + 1;
@@ -238,7 +239,7 @@ public abstract class AssembleSourcesTask extends DefaultTask {
     private SourceState rebuildIncremental(SourceState previousState, Path outputJavaDirectory, InputChanges inputChanges) throws IOException {
         SourceState currentState = new SourceState();
         for (SourceEntry previousEntry : previousState.all()) {
-            currentState.put(new SourceEntry(previousEntry.path, previousEntry.fqn, previousEntry.mergeDirectives, previousEntry.patchDirectives, previousEntry.mixinDirectives, previousEntry.hasAsphodelMarkers, previousEntry.ejected));
+            currentState.put(previousEntry);
         }
 
         Set<String> changedClassNames = new HashSet<>();
@@ -360,8 +361,8 @@ public abstract class AssembleSourcesTask extends DefaultTask {
 
     private void ensurePatchedSource(SourceEntry entry) throws IOException {
         if (entry.patchedSource != null) return;
-
-        String rawSource = Files.readString(entry.path);
+        String rawSource = entry.rawSource != null ? entry.rawSource : Files.readString(entry.path);
+        if (entry.rawSource == null) entry.rawSource = rawSource;
         PatchTransformer.Result patchResult = PatchTransformer.transform(rawSource, entry.patchDirectives, getTargetLoader().get(), getTargetVersion().get());
         for (String warning : patchResult.warnings()) getLogger().warn("[{}] {}", entry.fqn, warning);
 
@@ -411,7 +412,7 @@ public abstract class AssembleSourcesTask extends DefaultTask {
             if (entry.mergeDirectives.isEmpty()) continue;
 
             List<String> matchingTargetClassNames = new ArrayList<>();
-            for (MergeDirective mergeDirective : entry.mergeDirectives) {
+            for (AsphodelDirectives.MergeDirective mergeDirective : entry.mergeDirectives) {
                 if (mergeDirective.matches(loader, version)) matchingTargetClassNames.add(mergeDirective.targetFqn());
             }
             if (!matchingTargetClassNames.isEmpty()) contributions.put(entry.fqn, matchingTargetClassNames);
@@ -440,17 +441,16 @@ public abstract class AssembleSourcesTask extends DefaultTask {
         return dependentClassNames;
     }
 
-    private static List<MergeDirective> parseMergeDirectives(String source) {
-        List<MergeDirective> mergeDirectives = new ArrayList<>();
-        String normalizedSource = source.replace("\r\n", "\n").replace('\r', '\n');
-        for (String line : normalizedSource.split("\n")) {
-            MergeDirective mergeDirective = parseMergeDirective(line);
+    private static List<AsphodelDirectives.MergeDirective> parseMergeDirectives(String[] lines) {
+        List<AsphodelDirectives.MergeDirective> mergeDirectives = new ArrayList<>();
+        for (String line : lines) {
+            AsphodelDirectives.MergeDirective mergeDirective = parseMergeDirective(line);
             if (mergeDirective != null) mergeDirectives.add(mergeDirective);
         }
         return mergeDirectives;
     }
 
-    private static MergeDirective parseMergeDirective(String line) {
+    private static AsphodelDirectives.MergeDirective parseMergeDirective(String line) {
         Matcher directiveMatcher = MERGE_DIRECTIVE_PATTERN.matcher(line);
         if (!directiveMatcher.matches()) return null;
 
@@ -464,52 +464,29 @@ public abstract class AssembleSourcesTask extends DefaultTask {
         }
         if (!FULLY_QUALIFIED_NAME_PATTERN.matcher(targetClassName).matches()) return null;
 
-        String loaderPattern = null;
-        String versionPattern = null;
-        if (conditionSegment != null && !conditionSegment.isEmpty()) {
-            for (String rawCondition : conditionSegment.split(",")) {
-                String trimmedCondition = rawCondition.trim();
-                if (trimmedCondition.isEmpty()) continue;
-
-                int equalsIndex = trimmedCondition.indexOf('=');
-                if (equalsIndex < 0) continue;
-
-                String key = trimmedCondition.substring(0, equalsIndex).trim().toLowerCase();
-                String value = trimmedCondition.substring(equalsIndex + 1).trim();
-                if (value.isEmpty()) continue;
-
-                switch (key) {
-                    case "loader" -> loaderPattern = value;
-                    case "version" -> versionPattern = value;
-                    default -> {}
-                }
-            }
-        }
-        return new MergeDirective(loaderPattern, versionPattern, targetClassName);
+        java.util.Map<String, String> conditions = conditionSegment == null ? java.util.Map.of() : DirectiveMatcher.parseConditions(conditionSegment);
+        return new AsphodelDirectives.MergeDirective(conditions.get("loader"), conditions.get("version"), targetClassName);
     }
 
-    private static List<PatchDirective> parsePatchDirectives(String source) {
-        List<PatchDirective> patchDirectives = new ArrayList<>();
-        String normalizedSource = source.replace("\r\n", "\n").replace('\r', '\n');
-        for (String line : normalizedSource.split("\n")) {
-            PatchDirective patchDirective = PatchTransformer.parseDirective(line);
+    private static List<AsphodelDirectives.PatchDirective> parsePatchDirectives(String[] lines) {
+        List<AsphodelDirectives.PatchDirective> patchDirectives = new ArrayList<>();
+        for (String line : lines) {
+            AsphodelDirectives.PatchDirective patchDirective = PatchTransformer.parseDirective(line);
             if (patchDirective != null) patchDirectives.add(patchDirective);
         }
         return patchDirectives;
     }
 
-    private static List<MixinDirective> parseMixinDirectives(String source) {
-        List<MixinDirective> mixinDirectives = new ArrayList<>();
-        String normalizedSource = source.replace("\r\n", "\n").replace('\r', '\n');
-        String[] lines = normalizedSource.split("\n", -1);
+    private static List<AsphodelDirectives.MixinDirective> parseMixinDirectives(String[] lines) {
+        List<AsphodelDirectives.MixinDirective> mixinDirectives = new ArrayList<>();
         for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-            MixinDirective mixinDirective = parseMixinDirective(lines[lineIndex], lineIndex + 1);
+            AsphodelDirectives.MixinDirective mixinDirective = parseMixinDirective(lines[lineIndex], lineIndex + 1);
             if (mixinDirective != null) mixinDirectives.add(mixinDirective);
         }
         return mixinDirectives;
     }
 
-    private static MixinDirective parseMixinDirective(String line, int lineNumber) {
+    private static AsphodelDirectives.MixinDirective parseMixinDirective(String line, int lineNumber) {
         String trimmed = line.stripLeading();
         if (!trimmed.startsWith("//")) return null;
         String body = trimmed.substring(2).stripLeading();
@@ -518,33 +495,20 @@ public abstract class AssembleSourcesTask extends DefaultTask {
         if (!afterKeyword.startsWith("->")) return null;
         String directiveBody = afterKeyword.substring(2).strip();
 
-        String loader = null;
-        String version = null;
-        String file = null;
-        String env = "common";
-        for (String token : directiveBody.replace("->", ",").split(",")) {
-            int equalsIndex = token.indexOf('=');
-            if (equalsIndex < 0) continue;
-            String key = token.substring(0, equalsIndex).trim().toLowerCase();
-            String value = token.substring(equalsIndex + 1).trim();
-            if (value.isEmpty()) continue;
-            switch (key) {
-                case "loader" -> loader = value;
-                case "version" -> version = value;
-                case "file" -> file = value;
-                case "env" -> env = value.toLowerCase();
-            }
-        }
+        java.util.Map<String, String> parsed = DirectiveMatcher.parseConditions(directiveBody);
+        String loader = parsed.get("loader");
+        String version = parsed.get("version");
+        String file = parsed.get("file");
+        String env = parsed.getOrDefault("env", "common").toLowerCase();
         if (file == null) return null;
         if (!env.equals("common") && !env.equals("client") && !env.equals("server")) return null;
-        return new MixinDirective(loader, version, file, env, lineNumber);
+        return new AsphodelDirectives.MixinDirective(loader, version, file, env, lineNumber);
     }
 
-    private List<EjectDirective> parseEjectDirectives(String normalizedSource, int packageLine, String sourcePath) {
-        List<EjectDirective> ejectDirectives = new ArrayList<>();
-        String[] lines = normalizedSource.split("\n", -1);
+    private List<AsphodelDirectives.EjectDirective> parseEjectDirectives(String[] lines, int packageLine, String sourcePath) {
+        List<AsphodelDirectives.EjectDirective> ejectDirectives = new ArrayList<>();
         for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-            EjectDirective ejectDirective = parseEjectDirective(lines[lineIndex]);
+            AsphodelDirectives.EjectDirective ejectDirective = parseEjectDirective(lines[lineIndex]);
             if (ejectDirective == null) continue;
 
             int lineNumber = lineIndex + 1;
@@ -558,30 +522,16 @@ public abstract class AssembleSourcesTask extends DefaultTask {
         return ejectDirectives;
     }
 
-    private static EjectDirective parseEjectDirective(String line) {
+    private static AsphodelDirectives.EjectDirective parseEjectDirective(String line) {
         Matcher ejectMatcher = EJECT_DIRECTIVE_PATTERN.matcher(line);
         if (!ejectMatcher.matches()) return null;
 
-        String conditions = ejectMatcher.group(1);
-        String loaderPattern = null;
-        String versionPattern = null;
-        for (String token : conditions.replace("->", ",").split(",")) {
-            int equalsIndex = token.indexOf('=');
-            if (equalsIndex < 0) continue;
-            String key = token.substring(0, equalsIndex).trim().toLowerCase();
-            String value = token.substring(equalsIndex + 1).trim();
-            if (value.isEmpty()) continue;
-            switch (key) {
-                case "loader" -> loaderPattern = value;
-                case "version" -> versionPattern = value;
-                default -> {}
-            }
-        }
-        return new EjectDirective(loaderPattern, versionPattern);
+        java.util.Map<String, String> parsed = DirectiveMatcher.parseConditions(ejectMatcher.group(1));
+        return new AsphodelDirectives.EjectDirective(parsed.get("loader"), parsed.get("version"));
     }
 
-    private static boolean isEjected(List<EjectDirective> ejectDirectives, String loader, String version) {
-        for (EjectDirective ejectDirective : ejectDirectives) {
+    private static boolean isEjected(List<AsphodelDirectives.EjectDirective> ejectDirectives, String loader, String version) {
+        for (AsphodelDirectives.EjectDirective ejectDirective : ejectDirectives) {
             if (ejectDirective.matches(loader, version)) return true;
         }
         return false;
@@ -600,7 +550,7 @@ public abstract class AssembleSourcesTask extends DefaultTask {
 
             Path sourceRootPath = sourceRoot.toPath();
             try (Stream<Path> pathStream = Files.walk(sourceRootPath)) {
-                for (Path sourceFile : pathStream.filter(Files::isRegularFile).sorted().toList()) {
+                for (Path sourceFile : pathStream.filter(Files::isRegularFile).toList()) {
                     String relativePath = sourceRootPath.relativize(sourceFile).toString().replace(File.separatorChar, '/');
                     if (!copiedRelativePaths.add(relativePath)) continue;
 
@@ -653,7 +603,7 @@ public abstract class AssembleSourcesTask extends DefaultTask {
             }
             int mixinLine = mixinRange.get().begin.line;
 
-            for (MixinDirective directive : entry.mixinDirectives) {
+            for (AsphodelDirectives.MixinDirective directive : entry.mixinDirectives) {
                 if (directive.line() >= mixinLine) {
                     getLogger().warn("[{}] asphodel::mixin directive on line {} must be placed above the @Mixin annotation on line {}; ignoring",
                             entry.fqn, directive.line(), mixinLine);
@@ -766,8 +716,7 @@ public abstract class AssembleSourcesTask extends DefaultTask {
             if (root.has(key)) reordered.add(key, root.get(key));
         }
 
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-        String output = gson.toJson(reordered) + "\n";
+        String output = GSON.toJson(reordered) + "\n";
         try {
             Files.writeString(targetFile, output);
         } catch (IOException writeException) {
@@ -793,17 +742,19 @@ public abstract class AssembleSourcesTask extends DefaultTask {
 
     private static final class SourceEntry {
         final Path path;
+        String rawSource;
         final String fqn;
-        final List<MergeDirective> mergeDirectives;
-        final List<PatchDirective> patchDirectives;
-        final List<MixinDirective> mixinDirectives;
+        final List<AsphodelDirectives.MergeDirective> mergeDirectives;
+        final List<AsphodelDirectives.PatchDirective> patchDirectives;
+        final List<AsphodelDirectives.MixinDirective> mixinDirectives;
         final boolean hasAsphodelMarkers;
         final boolean ejected;
         CompilationUnit parsedUnit;
         String patchedSource;
 
-        SourceEntry(Path path, String fqn, List<MergeDirective> mergeDirectives, List<PatchDirective> patchDirectives, List<MixinDirective> mixinDirectives, boolean hasAsphodelMarkers, boolean ejected) {
+        SourceEntry(Path path, String fqn, List<AsphodelDirectives.MergeDirective> mergeDirectives, List<AsphodelDirectives.PatchDirective> patchDirectives, List<AsphodelDirectives.MixinDirective> mixinDirectives, boolean hasAsphodelMarkers, boolean ejected, String rawSource) {
             this.path = path;
+            this.rawSource = rawSource;
             this.fqn = fqn;
             this.mergeDirectives = mergeDirectives;
             this.patchDirectives = patchDirectives;
@@ -819,14 +770,14 @@ public abstract class AssembleSourcesTask extends DefaultTask {
 
     private static final class SourceState {
         private final Map<String, SourceEntry> entriesByClassName = new LinkedHashMap<>();
-        private final Map<String, SourceEntry> entriesBypath = new LinkedHashMap<>();
+        private final Map<Path, SourceEntry> entriesBypath = new LinkedHashMap<>();
 
         SourceEntry get(String fqn) {
             return entriesByClassName.get(fqn);
         }
 
         SourceEntry getByPath(Path path) {
-            return entriesBypath.get(path.toString());
+            return entriesBypath.get(path);
         }
 
         boolean contains(String fqn) {
@@ -843,15 +794,14 @@ public abstract class AssembleSourcesTask extends DefaultTask {
 
         void put(SourceEntry entry) {
             SourceEntry previousEntry = entriesByClassName.get(entry.fqn);
-            if (previousEntry != null) entriesBypath.remove(previousEntry.path.toString());
-
+            if (previousEntry != null) entriesBypath.remove(previousEntry.path);
             entriesByClassName.put(entry.fqn, entry);
-            entriesBypath.put(entry.path.toString(), entry);
+            entriesBypath.put(entry.path, entry);
         }
 
         void remove(String fqn) {
             SourceEntry removedEntry = entriesByClassName.remove(fqn);
-            if (removedEntry != null) entriesBypath.remove(removedEntry.path.toString());
+            if (removedEntry != null) entriesBypath.remove(removedEntry.path);
         }
 
         void save(Path stateFilePath, Path projectBasePath) throws IOException {
@@ -864,29 +814,29 @@ public abstract class AssembleSourcesTask extends DefaultTask {
                         .append(entry.hasAsphodelMarkers ? "true" : "false")
                         .append('\t')
                         .append(entry.mergeDirectives.size());
-                for (MergeDirective mergeDirective : entry.mergeDirectives) {
+                for (AsphodelDirectives.MergeDirective mergeDirective : entry.mergeDirectives) {
                     stateBuilder.append('\t')
-                            .append(mergeDirective.loader() == null ? "" : mergeDirective.loader())
+                            .append(orEmpty(mergeDirective.loader()))
                             .append('\t')
-                            .append(mergeDirective.version() == null ? "" : mergeDirective.version())
+                            .append(orEmpty(mergeDirective.version()))
                             .append('\t')
                             .append(mergeDirective.targetFqn());
                 }
                 stateBuilder.append('\t').append(entry.patchDirectives.size());
-                for (PatchDirective patchDirective : entry.patchDirectives) {
+                for (AsphodelDirectives.PatchDirective patchDirective : entry.patchDirectives) {
                     stateBuilder.append('\t')
-                            .append(patchDirective.loader() == null ? "" : patchDirective.loader())
+                            .append(orEmpty(patchDirective.loader()))
                             .append('\t')
-                            .append(patchDirective.version() == null ? "" : patchDirective.version())
+                            .append(orEmpty(patchDirective.version()))
                             .append('\t')
                             .append(patchDirective.id());
                 }
                 stateBuilder.append('\t').append(entry.mixinDirectives.size());
-                for (MixinDirective mixinDirective : entry.mixinDirectives) {
+                for (AsphodelDirectives.MixinDirective mixinDirective : entry.mixinDirectives) {
                     stateBuilder.append('\t')
-                            .append(mixinDirective.loader() == null ? "" : mixinDirective.loader())
+                            .append(orEmpty(mixinDirective.loader()))
                             .append('\t')
-                            .append(mixinDirective.version() == null ? "" : mixinDirective.version())
+                            .append(orEmpty(mixinDirective.version()))
                             .append('\t')
                             .append(mixinDirective.file())
                             .append('\t')
@@ -919,45 +869,49 @@ public abstract class AssembleSourcesTask extends DefaultTask {
                     Path entrypath = fromRelativeStatePath(projectBasePath, unescapeStateField(fields[2]));
                     boolean hasAsphodelMarkers = Boolean.parseBoolean(fields[3]);
                     int mergeDirectiveCount = Integer.parseInt(fields[4]);
-                    List<MergeDirective> mergeDirectives = new ArrayList<>(mergeDirectiveCount);
+                    List<AsphodelDirectives.MergeDirective> mergeDirectives = new ArrayList<>(mergeDirectiveCount);
                     int fieldIndex = 5;
                     for (int mergeIndex = 0; mergeIndex < mergeDirectiveCount; mergeIndex++) {
                         String loaderPattern = fields[fieldIndex].isEmpty() ? null : fields[fieldIndex];
                         String versionPattern = fields[fieldIndex + 1].isEmpty() ? null : fields[fieldIndex + 1];
-                        mergeDirectives.add(new MergeDirective(loaderPattern, versionPattern, fields[fieldIndex + 2]));
+                        mergeDirectives.add(new AsphodelDirectives.MergeDirective(loaderPattern, versionPattern, fields[fieldIndex + 2]));
                         fieldIndex += 3;
                     }
                     if (fieldIndex >= fields.length) continue;
 
                     int patchDirectiveCount = Integer.parseInt(fields[fieldIndex++]);
-                    List<PatchDirective> patchDirectives = new ArrayList<>(patchDirectiveCount);
+                    List<AsphodelDirectives.PatchDirective> patchDirectives = new ArrayList<>(patchDirectiveCount);
                     for (int patchIndex = 0; patchIndex < patchDirectiveCount; patchIndex++) {
                         String loaderPattern = fields[fieldIndex].isEmpty() ? null : fields[fieldIndex];
                         String versionPattern = fields[fieldIndex + 1].isEmpty() ? null : fields[fieldIndex + 1];
-                        patchDirectives.add(new PatchDirective(loaderPattern, versionPattern, fields[fieldIndex + 2]));
+                        patchDirectives.add(new AsphodelDirectives.PatchDirective(loaderPattern, versionPattern, fields[fieldIndex + 2]));
                         fieldIndex += 3;
                     }
                     if (fieldIndex >= fields.length) continue;
 
                     int mixinDirectiveCount = Integer.parseInt(fields[fieldIndex++]);
-                    List<MixinDirective> mixinDirectives = new ArrayList<>(mixinDirectiveCount);
+                    List<AsphodelDirectives.MixinDirective> mixinDirectives = new ArrayList<>(mixinDirectiveCount);
                     for (int mixinIndex = 0; mixinIndex < mixinDirectiveCount; mixinIndex++) {
                         String loaderPattern = fields[fieldIndex].isEmpty() ? null : fields[fieldIndex];
                         String versionPattern = fields[fieldIndex + 1].isEmpty() ? null : fields[fieldIndex + 1];
                         String file = fields[fieldIndex + 2];
                         String env = fields[fieldIndex + 3];
                         int line = Integer.parseInt(fields[fieldIndex + 4]);
-                        mixinDirectives.add(new MixinDirective(loaderPattern, versionPattern, file, env, line));
+                        mixinDirectives.add(new AsphodelDirectives.MixinDirective(loaderPattern, versionPattern, file, env, line));
                         fieldIndex += 5;
                     }
                     if (fieldIndex >= fields.length) continue;
 
                     boolean ejected = Boolean.parseBoolean(fields[fieldIndex]);
 
-                    loadedState.put(new SourceEntry(entrypath, fields[1], mergeDirectives, patchDirectives, mixinDirectives, hasAsphodelMarkers, ejected));
+                    loadedState.put(new SourceEntry(entrypath, fields[1], mergeDirectives, patchDirectives, mixinDirectives, hasAsphodelMarkers, ejected, null));
                 }
                 return loadedState;
             } catch (Exception loadException) { return null; }
+        }
+
+        private static String orEmpty(String value) {
+            return value == null ? "" : value;
         }
 
         private static String toRelativeStatePath(Path projectBasePath, Path absolutepath) {

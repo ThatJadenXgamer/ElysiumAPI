@@ -50,6 +50,7 @@ public final class ElysiumNetwork20L implements ElysiumNetworkBackend {
 
     public static void installBackend() {
         ElysiumNetwork.installBackend(INSTANCE);
+        ElysiumAPI.LOGGER.info("Successfully installed Backend for Payload Networking Facade");
     }
 
     @Override

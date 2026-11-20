@@ -14,6 +14,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.attachment.AttachmentType;
+import net.neoforged.neoforge.attachment.IAttachmentHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
 import org.jetbrains.annotations.Nullable;
@@ -25,8 +26,8 @@ public final class ElysiumAttachmentBackendN21 implements ElysiumAttachmentBacke
 
     private static final ElysiumAttachmentBackendN21 INSTANCE = new ElysiumAttachmentBackendN21();
 
-    private final Map<String, DeferredRegister<AttachmentType<?>>> deferredRegisters = new HashMap<>();
-    private final Map<ResourceLocation, AttachmentType<?>> neoTypes = new HashMap<>();
+    private final Map<String, DeferredRegister<AttachmentType<?>>> deferredRegistersByModId = new HashMap<>();
+    private final Map<ResourceLocation, AttachmentType<?>> nativeTypes = new HashMap<>();
     private IEventBus modBus;
 
     private ElysiumAttachmentBackendN21() {}
@@ -34,16 +35,17 @@ public final class ElysiumAttachmentBackendN21 implements ElysiumAttachmentBacke
     public static void installBackend(IEventBus modBus) {
         INSTANCE.modBus = modBus;
         ElysiumAttachments.installBackend(INSTANCE);
+        ElysiumAPI.LOGGER.info("Successfully installed Backend for Data Attachments Facade");
     }
 
     @Override
     public void register(String modId, ElysiumAttachmentRegistry registry) {
-        if (this.deferredRegisters.containsKey(modId)) throw new IllegalStateException("Attachments have already been registered for mod id '" + modId + "'; ElysiumAttachments.register must be called exactly once per mod.");
+        if (this.deferredRegistersByModId.containsKey(modId)) throw new IllegalStateException("Attachments have already been registered for mod id '" + modId + "'; ElysiumAttachments.register must be called exactly once per mod.");
         DeferredRegister<AttachmentType<?>> deferred = DeferredRegister.create(NeoForgeRegistries.ATTACHMENT_TYPES, modId);
         deferred.register(this.modBus);
-        this.deferredRegisters.put(modId, deferred);
-        for (ElysiumAttachmentType<?> type : registry.types()) {
-            this.registerType(deferred, type);
+        this.deferredRegistersByModId.put(modId, deferred);
+        for (ElysiumAttachmentType<?> attachmentType : registry.types()) {
+            this.registerType(deferred, attachmentType);
         }
     }
 
@@ -61,71 +63,73 @@ public final class ElysiumAttachmentBackendN21 implements ElysiumAttachmentBacke
             ElysiumStreamCodec<? super FriendlyByteBuf, T> syncCodec = type.syncCodec();
             if (syncCodec != null) builder.sync(ElysiumStreamCodecBridge.toVanilla(syncCodec));
 
-            AttachmentType<T> neoType = builder.build();
-            this.neoTypes.put(type.id(), neoType);
-            return neoType;
+            AttachmentType<T> nativeType = builder.build();
+            this.nativeTypes.put(type.id(), nativeType);
+            return nativeType;
         });
     }
 
     @SuppressWarnings("unchecked")
     private <T> AttachmentType<T> lookup(ElysiumAttachmentType<T> type) {
-        AttachmentType<?> neoType = this.neoTypes.get(type.id());
-        if (neoType == null) throw new IllegalStateException("Attachment type '" + type.id() + "' has not been registered; call ElysiumAttachments.register before accessing it.");
-        return (AttachmentType<T>) neoType;
+        AttachmentType<T> nativeType = (AttachmentType<T>) this.nativeTypes.get(type.id());
+        if (nativeType == null) throw new IllegalStateException("Attachment type '" + type.id() + "' has not been registered; call ElysiumAttachments.register before accessing it.");
+        return nativeType;
     }
 
     @Override
     public <T> T getData(Entity holder, ElysiumAttachmentType<T> type) {
-        return holder.getExistingData(this.lookup(type)).orElseGet(type.defaultValue());
+        return this.readAttachment(holder, type);
     }
 
     @Override
     public <T> T getData(BlockEntity holder, ElysiumAttachmentType<T> type) {
-        return holder.getExistingData(this.lookup(type)).orElseGet(type.defaultValue());
+        return this.readAttachment(holder, type);
     }
 
     @Override
     public <T> T getData(LevelChunk holder, ElysiumAttachmentType<T> type) {
-        return holder.getExistingData(this.lookup(type)).orElseGet(type.defaultValue());
+        return this.readAttachment(holder, type);
+    }
+
+    private <T> T readAttachment(IAttachmentHolder target, ElysiumAttachmentType<T> type) {
+        return target.getExistingData(this.lookup(type)).orElseGet(type.defaultValue());
     }
 
     @Override
     public <T> void setData(Entity holder, ElysiumAttachmentType<T> type, @Nullable T value) {
-        if (value == null) this.removeData(holder, type);
-        else holder.setData(this.lookup(type), value);
+        if (value == null) { this.removeData(holder, type); return; }
+        holder.setData(this.lookup(type), value);
     }
 
     @Override
     public <T> void setData(BlockEntity holder, ElysiumAttachmentType<T> type, @Nullable T value) {
-        if (value == null) this.removeData(holder, type);
-        else {
-            holder.setData(this.lookup(type), value);
-            holder.setChanged();
-        }
+        if (value == null) { this.removeData(holder, type); return; }
+        holder.setData(this.lookup(type), value);
     }
 
     @Override
     public <T> void setData(LevelChunk holder, ElysiumAttachmentType<T> type, @Nullable T value) {
-        if (value == null) this.removeData(holder, type);
-        else {
-            holder.setData(this.lookup(type), value);
-            holder.setUnsaved(true);
-        }
+        if (value == null) { this.removeData(holder, type); return; }
+        holder.setData(this.lookup(type), value);
     }
 
     @Override
     public <T> boolean hasData(Entity holder, ElysiumAttachmentType<T> type) {
-        return holder.hasData(this.lookup(type));
+        return this.hasAttachment(holder, type);
     }
 
     @Override
     public <T> boolean hasData(BlockEntity holder, ElysiumAttachmentType<T> type) {
-        return holder.hasData(this.lookup(type));
+        return this.hasAttachment(holder, type);
     }
 
     @Override
     public <T> boolean hasData(LevelChunk holder, ElysiumAttachmentType<T> type) {
-        return holder.hasData(this.lookup(type));
+        return this.hasAttachment(holder, type);
+    }
+
+    private <T> boolean hasAttachment(IAttachmentHolder target, ElysiumAttachmentType<T> type) {
+        return target.hasData(this.lookup(type));
     }
 
     @Override
@@ -136,12 +140,10 @@ public final class ElysiumAttachmentBackendN21 implements ElysiumAttachmentBacke
     @Override
     public <T> void removeData(BlockEntity holder, ElysiumAttachmentType<T> type) {
         holder.removeData(this.lookup(type));
-        holder.setChanged();
     }
 
     @Override
     public <T> void removeData(LevelChunk holder, ElysiumAttachmentType<T> type) {
         holder.removeData(this.lookup(type));
-        holder.setUnsaved(true);
     }
 }
