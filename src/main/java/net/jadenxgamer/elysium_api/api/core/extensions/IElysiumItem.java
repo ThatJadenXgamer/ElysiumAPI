@@ -47,7 +47,7 @@ public interface IElysiumItem {
      * from being removed from the players inventory and spawning in the world
      * <br>
      * NOTE: There was a client-side desync issue with the original Forge/Neo implementation that Elysium fixes,
-     * attempting to drop an item with the result of this method being false will not cause it to disappear on the client screen.
+     * attempting to drop an item with the result of this method being false did not prevent it from disappearing on the client screen.
      * As a side effect of this fix, this method is executed on the client side and server side as well, as opposed to only the latter.
      * <br>
      * <li>Original Analog: {@code ItemStack.onDroppedByPlayer}

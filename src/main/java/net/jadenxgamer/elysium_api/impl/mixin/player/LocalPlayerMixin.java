@@ -14,6 +14,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(LocalPlayer.class)
 public class LocalPlayerMixin {
 
+    // asphodel::patch -> loader=fabric, id=fabric
+    // asphodel::patch -> loader=forge, id=forge
+    // asphodel::patch -> loader=neoforge, id=neoforge
+
     @Inject(
             method = "drop",
             at = @At(value = "HEAD"),
@@ -28,7 +32,9 @@ public class LocalPlayerMixin {
         var player = (LocalPlayer) (Object) this;
         var inventory = player.getInventory();
         var selected = inventory.getSelected();
-        if (selected.isEmpty() || !((IElysiumItem) selected.getItem()).elysiumOnDroppedByPlayer(selected, player)) {
+        boolean onDroppedResult = !((IElysiumItem) selected.getItem()).elysiumOnDroppedByPlayer(selected, player); // remove*forge || neoforge
+        //boolean onDroppedResult = !selected.getItem().onDroppedByPlayer(selected, player); *forge || neoforge
+        if (selected.isEmpty() || onDroppedResult) {
             ServerboundPlayerActionPacket.Action action = fullStack
                     ? ServerboundPlayerActionPacket.Action.DROP_ALL_ITEMS
                     : ServerboundPlayerActionPacket.Action.DROP_ITEM;
